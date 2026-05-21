@@ -1,0 +1,7 @@
+log/
+build/
+*.tar.xz
+toolchain_path.cmake
+.vscode/
+*.swp
+*.o
