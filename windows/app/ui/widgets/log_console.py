@@ -9,13 +9,22 @@ class LogConsole(QTextEdit):
     def __init__(self):
         super().__init__()
         self.setReadOnly(True)
-        self.setObjectName("logConsole")
         self.document().setMaximumBlockCount(500)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setStyleSheet("""
+            QTextEdit {
+                background: #1a1a1a;
+                color: #b0bec5;
+                border-radius: 6px;
+                padding: 4px;
+                font-family: "Consolas", "Courier New", monospace;
+                font-size: 11px;
+            }
+        """)
 
     def append_log(self, ts: str, text: str):
         color = self._color_for_line(text)
-        html = f'<span style="color:#888;">{ts}</span> '
+        html = f'<span style="color:#616161;">{ts}</span> '
         html += f'<span style="color:{color};">{self._escape(text)}</span><br>'
 
         cursor = self.textCursor()
@@ -28,16 +37,16 @@ class LogConsole(QTextEdit):
 
     def _color_for_line(self, text: str) -> str:
         if parse_parameter_line(text) is not None:
-            return "#2ed573"
+            return "#69f0ae"
         if is_table_separator(text):
-            return "#74b9ff"
+            return "#82b1ff"
         if '[tuning]' in text.lower():
-            return "#ffa502"
+            return "#ffd740"
         if 'error' in text.lower():
-            return "#ff4757"
+            return "#ff5252"
         if '>>> sent' in text.lower():
-            return "#a29bfe"
-        return "#dfe6e9"
+            return "#b388ff"
+        return "#b0bec5"
 
     def _escape(self, text: str) -> str:
         return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')

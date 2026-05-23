@@ -4,7 +4,10 @@ import os
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 
+from qt_material import apply_stylesheet
+
 from app.ui.main_window import MainWindow
+from app.api.server import init_api
 
 
 def main():
@@ -15,19 +18,26 @@ def main():
     app.setApplicationName("可交互调车系统")
     app.setOrganizationName("EpollTuning")
 
+    apply_stylesheet(app, theme='dark_teal.xml', extra={
+        'font_family': 'Microsoft YaHei',
+        'font_size': 12,
+        'density_scale': -1,
+    })
+
+    # QSS overrides
+    qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ui', 'styles', 'theme.qss')
+    if not os.path.exists(qss_path):
+        qss_path = os.path.join(os.path.dirname(__file__), 'ui', 'styles', 'theme.qss')
     if getattr(sys, 'frozen', False):
-        base = sys._MEIPASS
-        qss_path = os.path.join(base, 'app', 'ui', 'styles', 'theme.qss')
-    else:
-        qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ui', 'styles', 'theme.qss')
-        if not os.path.exists(qss_path):
-            qss_path = os.path.join(os.path.dirname(__file__), 'ui', 'styles', 'theme.qss')
+        qss_path = os.path.join(sys._MEIPASS, 'app', 'ui', 'styles', 'theme.qss')
     if os.path.exists(qss_path):
         with open(qss_path, 'r', encoding='utf-8') as f:
-            app.setStyleSheet(f.read())
+            app.setStyleSheet(app.styleSheet() + '\n' + f.read())
 
     window = MainWindow()
     window.show()
+
+    init_api(window.state, window.tcp_worker)
 
     sys.exit(app.exec_())
 

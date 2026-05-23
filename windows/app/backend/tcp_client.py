@@ -20,31 +20,26 @@ class TcpWorker(QThread):
         self.state = state
         self._sock: Optional[socket.socket] = None
         self._running = False
+        self._connect_pending = None
 
     def connect_to(self, host: str, port: int):
+        if self._connect_pending:
+            return
         if self._sock:
             self.disconnect()
+            self.wait(2000)
 
-        try:
-            self._sock = socket.create_connection((host, port), timeout=5)
-            self._sock.setblocking(False)
-            self.state.connected = True
-            self.state.conn_addr = f"{host}:{port}"
-            self.state.status = f"Connected to {host}:{port}"
-            self.connection_changed.emit(True, self.state.conn_addr)
-            self._add_log(f"Connected to {host}:{port}")
-            self._running = True
-            self.start()
-        except (socket.error, ValueError) as e:
-            msg = f"Connection failed: {e}"
-            self.error_occurred.emit(msg)
-            self._add_log(f"[ERROR] {msg}")
-            self.state.connected = False
-            self.connection_changed.emit(False, "")
+        self._connect_pending = (host, port)
+        self.state.conn_addr = f"{host}:{port}"
+        self._add_log(f"Connecting to {host}:{port}...")
+        self.connection_changed.emit(False, f"Connecting to {host}:{port}...")
+        self._running = True
+        self.start()
 
     def disconnect(self):
         self._running = False
-        self.wait(2000)
+        self._connect_pending = None
+        self.wait(3000)
         if self._sock:
             try:
                 self._sock.close()
@@ -69,6 +64,25 @@ class TcpWorker(QThread):
             self._add_log(f"[ERROR] Send failed: {e}")
 
     def run(self):
+        if self._connect_pending:
+            host, port = self._connect_pending
+            self._connect_pending = None
+            try:
+                self._sock = socket.create_connection((host, port), timeout=5)
+                self._sock.setblocking(False)
+                self.state.connected = True
+                self.state.status = f"Connected to {host}:{port}"
+                self._add_log(f"Connected to {host}:{port}")
+                self.connection_changed.emit(True, f"{host}:{port}")
+            except (socket.error, OSError) as e:
+                msg = f"Connection failed: {e}"
+                self.error_occurred.emit(msg)
+                self._add_log(f"[ERROR] {msg}")
+                self.state.connected = False
+                self.connection_changed.emit(False, "")
+                self._running = False
+                return
+
         buf = b""
         while self._running:
             try:
@@ -78,7 +92,7 @@ class TcpWorker(QThread):
                 if self._sock in readable:
                     data = self._sock.recv(4096)
                     if not data:
-                        self._add_log("[ERROR] TCP connection closed by remote")
+                        self._add_log("[ERROR] Connection closed by remote")
                         self.state.connected = False
                         self.connection_changed.emit(False, "")
                         break
@@ -100,12 +114,9 @@ class TcpWorker(QThread):
             line = line_bytes.decode('utf-8', errors='replace').rstrip('\r')
         except Exception:
             line = line_bytes.decode('latin-1', errors='replace').rstrip('\r')
-
         if not line:
             return
-
         self._add_log(line)
-
         param = parse_parameter_line(line)
         if param is not None:
             self.state.parameters[param.name] = param

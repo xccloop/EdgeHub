@@ -1,8 +1,9 @@
 from PyQt5.QtWidgets import (
     QMainWindow, QStackedWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QWidget, QFrame
+    QPushButton, QLabel, QWidget, QFrame, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtGui import QIcon, QFont
 
 from app.backend.parser import AppState
 from app.backend.tcp_client import TcpWorker
@@ -11,20 +12,42 @@ from app.ui.dashboard_page import DashboardPage
 from app.ui.ai_tuning_page import AITuningPage
 
 
-class NavButton(QPushButton):
-    def __init__(self, text, icon_char=""):
-        super().__init__(f"  {icon_char}  {text}" if icon_char else text)
+_SIDEBAR_STYLE = """
+QPushButton {
+    text-align: left;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #b0bec5;
+}
+QPushButton:hover {
+    background: rgba(255,255,255,0.08);
+    color: #eceff1;
+}
+QPushButton:checked {
+    background: rgba(0,150,136,0.25);
+    color: #80cbc4;
+    font-weight: bold;
+}
+"""
+
+
+class SidebarButton(QPushButton):
+    def __init__(self, text, icon=""):
+        super().__init__(f"  {icon}  {text}")
         self.setCheckable(True)
-        self.setFixedHeight(44)
+        self.setFixedHeight(42)
         self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet(_SIDEBAR_STYLE)
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("可交互调车系统")
-        self.setMinimumSize(1280, 800)
-        self.resize(1400, 880)
+        self.setMinimumSize(960, 600)
+        self.resize(1100, 700)
 
         self.state = AppState()
         self.tcp_worker = TcpWorker(self.state)
@@ -32,30 +55,31 @@ class MainWindow(QMainWindow):
         self._setup_ui()
 
         self.tcp_worker.connection_changed.connect(self._on_connection_changed)
-        self.tcp_worker.error_occurred.connect(self._on_error)
 
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Navigation bar
-        nav = QFrame()
-        nav.setObjectName("navbar")
-        nav.setFixedHeight(56)
-        nav_layout = QHBoxLayout(nav)
-        nav_layout.setContentsMargins(16, 4, 16, 4)
+        # ── Sidebar ──
+        sidebar = QFrame()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(200)
+        sidebar.setStyleSheet("#sidebar { background: #1c1c1c; }")
+        sb_layout = QVBoxLayout(sidebar)
+        sb_layout.setContentsMargins(12, 20, 12, 20)
+        sb_layout.setSpacing(4)
 
-        title = QLabel("可交互调车系统")
-        title.setObjectName("navTitle")
-        nav_layout.addWidget(title)
-        nav_layout.addStretch()
+        # Logo
+        logo = QLabel("  Tuning Console")
+        logo.setStyleSheet("color: #80cbc4; font-size: 16px; font-weight: bold; padding: 4px 8px 16px 8px;")
+        sb_layout.addWidget(logo)
 
-        self.btn_connect = NavButton("连接", "")
-        self.btn_dashboard = NavButton("仪表盘", "")
-        self.btn_ai = NavButton("AI 调参", "")
+        self.btn_connect = SidebarButton("连接设备", "")
+        self.btn_dashboard = SidebarButton("参数仪表盘", "")
+        self.btn_ai = SidebarButton("AI 调参", "")
         self.btn_dashboard.setEnabled(False)
         self.btn_ai.setEnabled(False)
 
@@ -63,27 +87,30 @@ class MainWindow(QMainWindow):
         self.btn_dashboard.clicked.connect(lambda: self._switch_page(1))
         self.btn_ai.clicked.connect(lambda: self._switch_page(2))
 
-        nav_layout.addWidget(self.btn_connect)
-        nav_layout.addWidget(self.btn_dashboard)
-        nav_layout.addWidget(self.btn_ai)
+        sb_layout.addWidget(self.btn_connect)
+        sb_layout.addWidget(self.btn_dashboard)
+        sb_layout.addWidget(self.btn_ai)
+        sb_layout.addStretch()
+
+        # Status in sidebar footer
+        self.status_indicator = QLabel("  ● 未连接")
+        self.status_indicator.setStyleSheet("color: #ff5252; font-size: 12px; padding: 8px;")
+        sb_layout.addWidget(self.status_indicator)
+
+        api_label = QLabel("  API :9527")
+        api_label.setStyleSheet("color: #616161; font-size: 11px; padding: 4px 8px;")
+        sb_layout.addWidget(api_label)
 
         self._nav_buttons = [self.btn_connect, self.btn_dashboard, self.btn_ai]
+        root.addWidget(sidebar)
 
-        # Status indicator
-        self.status_indicator = QLabel("● 未连接")
-        self.status_indicator.setObjectName("statusIndicator")
-        self.status_indicator.setStyleSheet("color: #ff4757;")
-        nav_layout.addWidget(self.status_indicator)
-
-        root.addWidget(nav)
-
-        # Line separator
+        # ── Separator ──
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setObjectName("navSep")
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("background: #2c2c2c; max-width: 1px;")
         root.addWidget(sep)
 
-        # Stacked pages
+        # ── Content area ──
         self.stack = QStackedWidget()
         self.connect_page = ConnectPage(self.tcp_worker, self.state)
         self.dashboard_page = DashboardPage(self.tcp_worker, self.state)
@@ -92,7 +119,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.connect_page)
         self.stack.addWidget(self.dashboard_page)
         self.stack.addWidget(self.ai_page)
-
         root.addWidget(self.stack)
 
         self._switch_page(0)
@@ -104,20 +130,17 @@ class MainWindow(QMainWindow):
 
     def _on_connection_changed(self, connected, addr):
         if connected:
-            self.status_indicator.setText(f"● 已连接 {addr}")
-            self.status_indicator.setStyleSheet("color: #2ed573;")
+            self.status_indicator.setText(f"  ● 已连接")
+            self.status_indicator.setStyleSheet("color: #69f0ae; font-size: 12px; padding: 8px;")
             self.btn_dashboard.setEnabled(True)
             self.btn_ai.setEnabled(True)
             self._switch_page(1)
         else:
-            self.status_indicator.setText("● 未连接")
-            self.status_indicator.setStyleSheet("color: #ff4757;")
+            self.status_indicator.setText("  ● 未连接")
+            self.status_indicator.setStyleSheet("color: #ff5252; font-size: 12px; padding: 8px;")
             self.btn_dashboard.setEnabled(False)
             self.btn_ai.setEnabled(False)
             self._switch_page(0)
-
-    def _on_error(self, msg):
-        pass
 
     def closeEvent(self, event):
         self.tcp_worker.disconnect()
