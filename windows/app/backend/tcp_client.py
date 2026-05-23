@@ -32,7 +32,6 @@ class TcpWorker(QThread):
         self._connect_pending = (host, port)
         self.state.conn_addr = f"{host}:{port}"
         self._add_log(f"Connecting to {host}:{port}...")
-        self.connection_changed.emit(False, f"Connecting to {host}:{port}...")
         self._running = True
         self.start()
 
@@ -64,6 +63,16 @@ class TcpWorker(QThread):
             self._add_log(f"[ERROR] Send failed: {e}")
 
     def run(self):
+        try:
+            self._do_run()
+        except Exception as e:
+            self._add_log(f"[ERROR] TcpWorker crashed: {e}")
+            self.error_occurred.emit(f"Internal error: {e}")
+            self.state.connected = False
+            self.connection_changed.emit(False, "")
+            self._running = False
+
+    def _do_run(self):
         if self._connect_pending:
             host, port = self._connect_pending
             self._connect_pending = None

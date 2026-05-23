@@ -130,17 +130,11 @@ class MainWindow(QMainWindow):
 
     def _on_connection_changed(self, connected, addr):
         if connected:
-            self.status_indicator.setText(f"  ● 已连接")
+            self.status_indicator.setText("  ● 已连接")
             self.status_indicator.setStyleSheet("color: #69f0ae; font-size: 12px; padding: 8px;")
             self.btn_dashboard.setEnabled(True)
             self.btn_ai.setEnabled(True)
             self._switch_page(1)
-        else:
-            self.status_indicator.setText("  ● 未连接")
-            self.status_indicator.setStyleSheet("color: #ff5252; font-size: 12px; padding: 8px;")
-            self.btn_dashboard.setEnabled(False)
-            self.btn_ai.setEnabled(False)
-            self._switch_page(0)
 
     def closeEvent(self, event):
         self.tcp_worker.disconnect()

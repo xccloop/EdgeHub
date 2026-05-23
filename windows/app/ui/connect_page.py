@@ -32,6 +32,10 @@ class ConnectPage(QWidget):
         self.tcp_worker.connection_changed.connect(self._on_connection_changed)
         self.tcp_worker.error_occurred.connect(self._on_error)
 
+        self._timeout_timer = QTimer()
+        self._timeout_timer.setSingleShot(True)
+        self._timeout_timer.timeout.connect(self._on_connect_timeout)
+
     def _setup_ui(self):
         vbox = QVBoxLayout(self)
         vbox.setAlignment(Qt.AlignCenter)
@@ -146,20 +150,33 @@ class ConnectPage(QWidget):
         if connecting:
             self.status_label.setText("正在连接...")
             self.status_label.setStyleSheet("color: #ffab40; font-size: 13px; font-weight: 500;")
+            self._timeout_timer.start(8000)
+        else:
+            self._timeout_timer.stop()
+
+    def _on_connect_timeout(self):
+        if self._connecting:
+            self._set_connecting(False)
+            self.connect_btn.setEnabled(True)
+            self.ip_input.setEnabled(True)
+            self.port_input.setEnabled(True)
+            self.connect_btn.setText("连接板卡")
+            self.status_label.setText("连接超时")
+            self.status_label.setStyleSheet("color: #ff5252; font-size: 13px; font-weight: 500;")
 
     def _on_connection_changed(self, connected, addr):
-        self._set_connecting(False)
-        self.connect_btn.setEnabled(True)
         if connected:
+            self._set_connecting(False)
+            self.connect_btn.setEnabled(True)
             self.connect_btn.setText("断开连接")
             self.status_label.setText("● 已连接")
             self.status_label.setStyleSheet("color: #69f0ae; font-size: 13px; font-weight: 500;")
-        else:
-            self.connect_btn.setText("连接板卡")
-            self.status_label.setText("● 未连接")
-            self.status_label.setStyleSheet("color: #ff5252; font-size: 13px; font-weight: 500;")
-            self.ip_input.setEnabled(True)
-            self.port_input.setEnabled(True)
+            if self.ip_input.text().strip() not in _IP_HISTORY:
+                _IP_HISTORY.insert(0, self.ip_input.text().strip())
+                if len(_IP_HISTORY) > 5: _IP_HISTORY.pop()
+            if self.port_input.text().strip() not in _PORT_HISTORY:
+                _PORT_HISTORY.insert(0, self.port_input.text().strip())
+        # Ignore disconnected signal while connecting — error handler deals with failure
 
     def _on_error(self, msg):
         self._set_connecting(False)
