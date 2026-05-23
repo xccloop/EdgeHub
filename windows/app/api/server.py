@@ -2,19 +2,27 @@
 
 import json
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+import logging
+
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 from flask import Flask, request, jsonify
-from flask_socketio import SocketIO, emit
 
 from app.backend.parser import AppState
 from app.backend.tcp_client import TcpWorker
 
-
 flask_app = Flask("EpollAPI")
 flask_app.config['SECRET_KEY'] = 'epoll-tuning'
-socketio = SocketIO(flask_app, cors_allowed_origins="*", async_mode='threading')
+
+_WS_AVAILABLE = False
+_socketio = None
+try:
+    from flask_socketio import SocketIO, emit
+    _socketio = SocketIO(cors_allowed_origins="*")
+    _socketio.init_app(flask_app)
+    _WS_AVAILABLE = True
+except (ValueError, ImportError, Exception):
+    _socketio = None
 
 _app_state: AppState = None
 _tcp_worker: TcpWorker = None
@@ -29,27 +37,35 @@ def init_api(state: AppState, worker: TcpWorker):
     worker.log_received.connect(_on_log_received)
     worker.connection_changed.connect(_on_connection_changed)
 
-    t = threading.Thread(target=lambda: socketio.run(flask_app, host='0.0.0.0', port=9527,
-                                                       allow_unsafe_werkzeug=True, debug=False,
-                                                       use_reloader=False, log_output=False),
-                         daemon=True)
+    if _WS_AVAILABLE and _socketio:
+        t = threading.Thread(target=lambda: _socketio.run(
+            flask_app, host='0.0.0.0', port=9527,
+            allow_unsafe_werkzeug=True, debug=False,
+            use_reloader=False, log_output=False), daemon=True)
+    else:
+        t = threading.Thread(target=lambda: flask_app.run(
+            host='0.0.0.0', port=9527, debug=False,
+            use_reloader=False), daemon=True)
     t.start()
 
 
 def _on_param_updated(name, param):
-    socketio.emit('param_update', {
-        'name': name, 'value': param.value,
-        'min': param.min_val, 'max': param.max_val,
-        'description': param.description
-    })
+    if _WS_AVAILABLE and _socketio:
+        _socketio.emit('param_update', {
+            'name': name, 'value': param.value,
+            'min': param.min_val, 'max': param.max_val,
+            'description': param.description
+        })
 
 
 def _on_log_received(ts, text):
-    socketio.emit('log', {'ts': ts, 'text': text})
+    if _WS_AVAILABLE and _socketio:
+        _socketio.emit('log', {'ts': ts, 'text': text})
 
 
 def _on_connection_changed(connected, addr):
-    socketio.emit('connection', {'connected': connected, 'address': addr})
+    if _WS_AVAILABLE and _socketio:
+        _socketio.emit('connection', {'connected': connected, 'address': addr})
 
 
 # ── REST Endpoints ──
@@ -59,7 +75,8 @@ def api_status():
     return jsonify({
         'connected': _app_state.connected if _app_state else False,
         'address': _app_state.conn_addr if _app_state else '',
-        'status': _app_state.status if _app_state else 'Not initialized'
+        'status': _app_state.status if _app_state else 'Not initialized',
+        'websocket': _WS_AVAILABLE,
     })
 
 
@@ -111,20 +128,20 @@ def api_command():
     return jsonify({'status': 'sent', 'command': cmd})
 
 
-# ── WebSocket handlers ──
+# ── WebSocket (if available) ──
 
-@socketio.on('connect')
-def ws_connect():
-    emit('welcome', {'message': 'Connected to Epoll tuning API'})
+if _WS_AVAILABLE:
 
+    @_socketio.on('connect')
+    def ws_connect():
+        emit('welcome', {'message': 'Connected to Epoll tuning API'})
 
-@socketio.on('command')
-def ws_command(data):
-    cmd = data.get('command', '')
-    if cmd and _tcp_worker:
-        _tcp_worker.send(cmd)
+    @_socketio.on('command')
+    def ws_command(data):
+        cmd = data.get('command', '')
+        if cmd and _tcp_worker:
+            _tcp_worker.send(cmd)
 
-
-@socketio.on('disconnect')
-def ws_disconnect():
-    pass
+    @_socketio.on('disconnect')
+    def ws_disconnect():
+        pass
