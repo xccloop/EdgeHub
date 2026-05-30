@@ -1,22 +1,18 @@
 <template>
   <div class="data-stream">
     <div class="page-header">
-      <div>
-        <h1>Data Stream</h1>
-        <p class="subtitle">Real-time JSON messages from all boards</p>
-      </div>
+      <div><h1>Data Stream</h1><p class="subtitle">Real-time JSON from all boards</p></div>
       <div class="toolbar">
-        <span class="line-count">{{ lines.length }} lines</span>
-        <el-button size="small" @click="lines = []" text>Clear</el-button>
-        <el-button size="small" @click="paused = !paused" :type="paused ? 'warning' : 'default'" text>
-          {{ paused ? 'Resume' : 'Pause' }}
+        <span class="line-count">{{ store.logs.length }} lines</span>
+        <el-button size="small" @click="store.logs.length = 0" text>Clear</el-button>
+        <el-button size="small" @click="store.logPaused = !store.logPaused" :type="store.logPaused ? 'warning' : 'default'" text>
+          {{ store.logPaused ? 'Resume' : 'Pause' }}
         </el-button>
       </div>
     </div>
-
     <div class="log-container" ref="logRef">
-      <div class="log-line" v-for="(line, i) in lines" :key="i">
-        <span class="idx">[{{ i + 1 }}]</span>
+      <div class="log-line" v-for="(line, i) in store.logs" :key="i">
+        <span class="idx">[{{ i+1 }}]</span>
         <span class="board" :style="{ color: colorForBoard(line.board_id) }">[{{ line.board_id }}]</span>
         <span class="type">{{ line.type }}</span>
         <span class="json">{{ line.json }}</span>
@@ -26,31 +22,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { connectEventSource, type TelemetryMsg, type HeartbeatMsg, type EventMsg } from '@/api'
+import { ref, nextTick, watch } from 'vue'
+import { store } from '@/api'
 
-interface LogLine { board_id: string; type: string; json: string }
-
-const lines = ref<LogLine[]>([])
-const paused = ref(false)
 const logRef = ref<HTMLElement>()
-
 const colors = ['#4a6cf7','#f97316','#8b5cf6','#10b981','#f43f5e','#06b6d4']
-const colorForBoard = (id: string) => { let h = 0; for (let i=0;i<id.length;i++) h=((h<<5)-h+id.charCodeAt(i))|0; return colors[Math.abs(h)%colors.length] }
+const colorForBoard = (id: string) => { let h=0; for(let i=0;i<id.length;i++) h=((h<<5)-h+id.charCodeAt(i))|0; return colors[Math.abs(h)%colors.length] }
 
-function add(board_id: string, type: string, json: string) {
-  if (paused.value) return
-  lines.value.push({ board_id, type, json })
-  if (lines.value.length > 500) lines.value.splice(0, 50)
+watch(() => store.logs.length, () => {
   nextTick(() => { if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight })
-}
-
-onMounted(() => {
-  connectEventSource(
-    (t: TelemetryMsg) => add(t.board_id, 'telemetry', JSON.stringify(t.raw)),
-    (h: HeartbeatMsg) => add(h.board_id, 'heartbeat', JSON.stringify({ type: 'heartbeat', board: h.board_id, ts: h.ts })),
-    (e: EventMsg) => add(e.board_id, e.event, JSON.stringify({ type: 'event', event: e.event, board: e.board_id, detail: e.detail })),
-  )
 })
 </script>
 
@@ -66,11 +46,10 @@ onMounted(() => {
 .subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 .toolbar { display: flex; align-items: center; gap: 8px; }
 .line-count { font-size: 12px; color: var(--text-secondary); }
-
 .log-container {
   flex: 1; overflow-y: auto; background: #fff;
   border: 1px solid var(--border); border-radius: 12px; padding: 14px;
-  font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; line-height: 1.7;
+  font-family: 'Cascadia Code','Consolas',monospace; font-size: 12px; line-height: 1.7;
 }
 .log-line { white-space: nowrap; }
 .idx { color: #cbd5e1; margin-right: 8px; }

@@ -1,3 +1,5 @@
+import { reactive } from 'vue'
+
 const BASE = ''
 
 export interface DeviceInfo {
@@ -7,48 +9,87 @@ export interface DeviceInfo {
   msg_count: number
   telemetry_count: number
   heartbeat_count: number
-  last_telemetry?: Record<string, any>
 }
 
-export interface TelemetryMsg {
+export interface LogLine {
   board_id: string
-  raw: Record<string, any>
+  type: string
+  json: string
 }
 
-export interface HeartbeatMsg {
-  board_id: string
-  ts: number
-}
+// ── Global reactive state ────────────────────────────
+export const store = reactive({
+  serverConnected: false,
+  devices: {} as Record<string, DeviceInfo>,
+  logs: [] as LogLine[],
+  logPaused: false,
+})
 
-export interface EventMsg {
-  event: string
-  board_id: string
-  detail: string
-}
+// ── Single global SSE connection ─────────────────────
+let _es: EventSource | null = null
 
-// SSE connection for real-time data from backend
-export function connectEventSource(onTelemetry: (m: TelemetryMsg) => void, onHeartbeat: (m: HeartbeatMsg) => void, onEvent: (m: EventMsg) => void): EventSource {
-  const es = new EventSource(`${BASE}/api/stream`)
-  es.addEventListener('telemetry', (e: MessageEvent) => {
-    try { onTelemetry(JSON.parse(e.data)) } catch {}
+export function startEventSource() {
+  if (_es) _es.close()
+  _es = new EventSource(`${BASE}/api/stream`)
+
+  _es.addEventListener('telemetry', (e: MessageEvent) => {
+    try {
+      const t = JSON.parse(e.data)
+      const d = ensureDevice(t.board_id)
+      d.telemetry_count++
+      d.msg_count++
+      store.logs.push({ board_id: t.board_id, type: 'telemetry', json: JSON.stringify(t.raw) })
+      trimLogs()
+    } catch {}
   })
-  es.addEventListener('heartbeat', (e: MessageEvent) => {
-    try { onHeartbeat(JSON.parse(e.data)) } catch {}
+
+  _es.addEventListener('heartbeat', (e: MessageEvent) => {
+    try {
+      const h = JSON.parse(e.data)
+      const d = ensureDevice(h.board_id)
+      d.heartbeat_count++
+      d.msg_count++
+      if (h.ts) d.last_seen_ms = h.ts
+      store.logs.push({ board_id: h.board_id, type: 'heartbeat', json: JSON.stringify({ type: 'heartbeat', board: h.board_id, ts: h.ts }) })
+      trimLogs()
+    } catch {}
   })
-  es.addEventListener('event', (e: MessageEvent) => {
-    try { onEvent(JSON.parse(e.data)) } catch {}
+
+  _es.addEventListener('event', (e: MessageEvent) => {
+    try {
+      const ev = JSON.parse(e.data)
+      if (ev.board_id === 'server') {
+        store.serverConnected = ev.event === 'connected'
+      } else {
+        const d = ensureDevice(ev.board_id)
+        d.state = (ev.event === 'online' ? 'ONLINE' : 'OFFLINE')
+        store.logs.push({ board_id: ev.board_id, type: ev.event, json: JSON.stringify(ev) })
+        trimLogs()
+      }
+    } catch {}
   })
-  es.onerror = () => { /* auto-reconnect built into EventSource */ }
-  return es
+
+  _es.onerror = () => { /* auto-reconnect */ }
 }
 
-// Fetch server status
+function ensureDevice(id: string): DeviceInfo {
+  if (!store.devices[id]) {
+    store.devices[id] = { board_id: id, state: 'ONLINE', last_seen_ms: 0, msg_count: 0, telemetry_count: 0, heartbeat_count: 0 }
+  }
+  return store.devices[id]
+}
+
+function trimLogs() {
+  if (store.logs.length > 500) store.logs.splice(0, 50)
+}
+
+// ── REST API ─────────────────────────────────────────
+
 export async function fetchStatus(): Promise<{ server_connected: boolean; board_count: number }> {
   const r = await fetch(`${BASE}/api/status`)
   return r.json()
 }
 
-// Connect to Raspberry Pi
 export async function connectServer(host: string, port: number): Promise<{ success: boolean; error?: string }> {
   const r = await fetch(`${BASE}/api/connect`, {
     method: 'POST',
