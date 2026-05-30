@@ -36,9 +36,11 @@ class NavButton(QPushButton):
 
         # Animated indicator
         self._indicator_h = 0
-        self._indicator_anim = QPropertyAnimation(self, b"indicator_height")
+        from PyQt5.QtCore import QVariantAnimation
+        self._indicator_anim = QVariantAnimation(self)
         self._indicator_anim.setDuration(220)
         self._indicator_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._indicator_anim.valueChanged.connect(self._on_indicator_changed)
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -89,9 +91,9 @@ class NavButton(QPushButton):
             self._indicator_anim.setEndValue(0)
             self._indicator_anim.start()
 
-    def get_indicator_height(self): return self._indicator_h
-    def set_indicator_height(self, h): self._indicator_h = h; self.update()
-    indicator_height = property(get_indicator_height, set_indicator_height)
+    def _on_indicator_changed(self, h):
+        self._indicator_h = int(h)
+        self.update()
 
     def eventFilter(self, obj, event):
         if not self._selected:
