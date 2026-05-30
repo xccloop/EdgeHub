@@ -33,8 +33,8 @@ defineEmits<{ toggle: [] }>()
 
 const navItems = [
   { path: '/', icon: '◆', label: 'Dashboard' },
-  { path: '/device', icon: '◉', label: 'Device Detail' },
-  { path: '/stream', icon: '◣', label: 'Data Stream' },
+  { path: '/device', icon: '◎', label: 'Device Detail' },
+  { path: '/stream', icon: '☰', label: 'Data Stream' },
   { path: '/settings', icon: '⚙', label: 'Settings' },
 ]
 </script>
