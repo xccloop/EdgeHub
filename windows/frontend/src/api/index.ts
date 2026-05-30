@@ -32,41 +32,35 @@ export function startEventSource() {
   if (_es) _es.close()
   _es = new EventSource(`${BASE}/api/stream`)
 
-  _es.addEventListener('telemetry', (e: MessageEvent) => {
-    try {
-      const t = JSON.parse(e.data)
-      const d = ensureDevice(t.board_id)
-      d.telemetry_count++
-      d.msg_count++
-      store.logs.push({ board_id: t.board_id, type: 'telemetry', json: JSON.stringify(t.raw) })
-      trimLogs()
-    } catch {}
+  _es.addEventListener('telemetry', (e: any) => {
+    const raw = JSON.parse(e.data)
+    const d = ensureDevice(raw.board_id)
+    d.telemetry_count++
+    d.msg_count++
+    store.logs.push({ board_id: raw.board_id, type: 'telemetry', json: JSON.stringify(raw.raw) })
+    trimLogs()
   })
 
-  _es.addEventListener('heartbeat', (e: MessageEvent) => {
-    try {
-      const h = JSON.parse(e.data)
-      const d = ensureDevice(h.board_id)
-      d.heartbeat_count++
-      d.msg_count++
-      if (h.ts) d.last_seen_ms = h.ts
-      store.logs.push({ board_id: h.board_id, type: 'heartbeat', json: JSON.stringify({ type: 'heartbeat', board: h.board_id, ts: h.ts }) })
-      trimLogs()
-    } catch {}
+  _es.addEventListener('heartbeat', (e: any) => {
+    const raw = JSON.parse(e.data)
+    const d = ensureDevice(raw.board_id)
+    d.heartbeat_count++
+    d.msg_count++
+    if (raw.ts) d.last_seen_ms = raw.ts
+    store.logs.push({ board_id: raw.board_id, type: 'heartbeat', json: JSON.stringify({ type: 'heartbeat', board: raw.board_id, ts: raw.ts }) })
+    trimLogs()
   })
 
-  _es.addEventListener('event', (e: MessageEvent) => {
-    try {
-      const ev = JSON.parse(e.data)
-      if (ev.board_id === 'server') {
-        store.serverConnected = ev.event === 'connected'
-      } else {
-        const d = ensureDevice(ev.board_id)
-        d.state = (ev.event === 'online' ? 'ONLINE' : 'OFFLINE')
-        store.logs.push({ board_id: ev.board_id, type: ev.event, json: JSON.stringify(ev) })
-        trimLogs()
-      }
-    } catch {}
+  _es.addEventListener('event', (e: any) => {
+    const raw = JSON.parse(e.data)
+    if (raw.board_id === 'server') {
+      store.serverConnected = raw.event === 'connected'
+    } else {
+      const d = ensureDevice(raw.board_id)
+      d.state = (raw.event === 'online' ? 'ONLINE' : 'OFFLINE')
+      store.logs.push({ board_id: raw.board_id, type: raw.event, json: JSON.stringify(raw) })
+      trimLogs()
+    }
   })
 
   _es.onerror = () => { /* auto-reconnect */ }

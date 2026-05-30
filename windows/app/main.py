@@ -20,6 +20,15 @@ from .backend.models import Telemetry, Heartbeat, DeviceEvent
 # ── Paths ────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIST = os.path.join(BASE_DIR, "..", "frontend", "dist")
+LOG_FILE = os.path.join(BASE_DIR, "..", "edgehub.log")
+
+def _log(msg: str):
+    t = datetime.now().strftime("%H:%M:%S")
+    line = f"[{t}] {msg}"
+    print(line)
+    try:
+        with open(LOG_FILE, "a") as f: f.write(line + "\n")
+    except: pass
 
 # ── Global state ─────────────────────────────────────
 class AppState:
@@ -45,6 +54,7 @@ async def api_stream(request: Request):
     """Server-Sent Events endpoint for real-time data."""
     queue: asyncio.Queue = asyncio.Queue()
     state.sse_clients.append(queue)
+    _log(f"SSE client connected, total={len(state.sse_clients)}")
 
     async def event_generator():
         try:
@@ -67,6 +77,9 @@ async def api_stream(request: Request):
 def broadcast_sse(event: str, data: str):
     """Push data to all SSE clients."""
     msg = f"event: {event}\ndata: {data}\n\n"
+    n = len(state.sse_clients)
+    if n == 0:
+        _log(f"SSE no clients, dropping {event}")
     for q in state.sse_clients[:]:
         try:
             q.put_nowait(msg)
