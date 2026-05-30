@@ -1,15 +1,21 @@
-# Root
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-*.log
-*.py[cod]
+# Codegraph index
+.codegraph/
+
+# IDE
+.vscode/
+
+# Build artifacts
+raspberry_pi/build/
+*.o
+*.obj
+
+# Python
+windows/__pycache__/
+windows/app/__pycache__/
 __pycache__/
-*.egg-info/
-dist/
-build/
+*.pyc
+
+# PyInstaller
+windows/dist/
+windows/build/
 *.spec
-.venv/
-.env
