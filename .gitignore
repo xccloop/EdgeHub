@@ -19,3 +19,7 @@ __pycache__/
 windows/dist/
 windows/build/
 *.spec
+
+# Node.js
+windows/frontend/node_modules/
+windows/frontend/dist/
