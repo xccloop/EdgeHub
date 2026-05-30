@@ -12,8 +12,13 @@ from .ui.main_window import MainWindow
 
 
 def _load_fonts():
-    """Load embedded Quicksand font files."""
-    font_dir = os.path.join(os.path.dirname(__file__), "ui", "fonts")
+    """Load embedded Quicksand font files. Handles PyInstaller frozen paths."""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(__file__)
+    font_dir = os.path.join(base, "app", "ui", "fonts") if getattr(sys, 'frozen', False) \
+               else os.path.join(base, "ui", "fonts")
     loaded = []
     for fname in os.listdir(font_dir):
         if fname.endswith(".ttf"):

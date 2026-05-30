@@ -13,7 +13,7 @@ args = [
     "--onefile",
     "--windowed",
     "--clean",
-    "--add-data", f"app/ui/styles{os.pathsep}ui/styles",
+    "--add-data", f"app/ui/fonts{os.pathsep}app/ui/fonts",
     "--hidden-import", "PyQt5.QtWebSockets",
     "--hidden-import", "PyQt5.QtWebChannel",
 ]
