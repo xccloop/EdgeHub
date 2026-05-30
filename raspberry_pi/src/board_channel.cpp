@@ -15,7 +15,6 @@ BoardChannel::BoardChannel(int _fd, const std::string &_ip)
     : fd(_fd), ip(_ip), parser([](const Frame &) {})
 {
     connect_time_ms = get_time_ms();
-    memset(m_rx_buf, 0, sizeof(m_rx_buf));
 }
 
 bool BoardChannel::read_all() {
@@ -51,14 +50,4 @@ void BoardChannel::feed(const uint8_t *data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         parser.feed_byte(data[i]);
     }
-}
-
-void BoardChannel::consume_bytes(size_t n) {
-    if (n >= m_rx_pos) {
-        m_rx_pos = 0;
-        return;
-    }
-    size_t remaining = m_rx_pos - n;
-    memmove(m_rx_buf, m_rx_buf + n, remaining);
-    m_rx_pos = remaining;
 }

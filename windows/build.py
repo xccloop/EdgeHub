@@ -19,7 +19,8 @@ args = [
     "--hidden-import", "PyQt5.QtWebChannel",
 ]
 
-if sys.platform == "win32":
-    args += ["--icon", "app/ui/styles/edgehub.ico"]
+# D3: icon file not yet created — skip for now
+# if sys.platform == "win32":
+#     args += ["--icon", "app/ui/styles/edgehub.ico"]
 
 PyInstaller.__main__.run(args)

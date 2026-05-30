@@ -91,10 +91,19 @@ std::string MessageRouter::escape_json(const std::string &s) {
         switch (c) {
         case '"':  out += "\\\""; break;
         case '\\': out += "\\\\"; break;
+        case '\b': out += "\\b";  break;
+        case '\f': out += "\\f";  break;
         case '\n': out += "\\n";  break;
         case '\r': out += "\\r";  break;
         case '\t': out += "\\t";  break;
-        default:   out += c;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20) {
+                char hex[8];
+                snprintf(hex, sizeof(hex), "\\u%04x", static_cast<unsigned char>(c));
+                out += hex;
+            } else {
+                out += c;
+            }
         }
     }
     return out;

@@ -1,10 +1,12 @@
 """Publish/subscribe data dispatcher for loose coupling between
 WebSocket client and UI pages."""
 
+import logging
 from typing import Type, Callable, Dict, List, Any
 from .models import Telemetry, Heartbeat, DeviceEvent
 
 Subscriber = Callable[[Any], None]
+logger = logging.getLogger(__name__)
 
 
 class DataDispatcher:
@@ -35,4 +37,5 @@ class DataDispatcher:
                 try:
                     cb(model)
                 except Exception:
-                    pass
+                    logger.debug("subscriber error for %s", model_type.__name__,
+                                exc_info=True)

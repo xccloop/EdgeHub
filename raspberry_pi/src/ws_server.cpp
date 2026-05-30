@@ -1,4 +1,5 @@
 #include "ws_server.hpp"
+#define MG_SEND_MAX_QUEUE 64
 #include "mongoose.h"
 #include <cstring>
 #include <cstdio>

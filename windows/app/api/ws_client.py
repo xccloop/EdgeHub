@@ -15,6 +15,7 @@ class WsClient(QObject):
 
     connected = pyqtSignal()
     disconnected = pyqtSignal()
+    reconnecting = pyqtSignal()          # D1: emitted when scheduled reconnect
     message_received = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
 
@@ -77,6 +78,7 @@ class WsClient(QObject):
         if not self._intentional:
             return
         # Schedule reconnect with backoff
+        self.reconnecting.emit()
         self._reconnect_timer.start(self._retry_delay)
         self._retry_delay = min(self._retry_delay * 2, self._max_delay)
 

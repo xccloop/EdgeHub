@@ -1,6 +1,6 @@
 """Settings page — server connection controls."""
 
-from PyQt5.QtWidgets import QFrame, QHBoxLayout
+from PyQt5.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout
 from PyQt5.QtCore import Qt
 from qfluentwidgets import (LineEdit, PushButton, SubtitleLabel,
                              BodyLabel, CardWidget, InfoBar, InfoBarPosition)
@@ -20,6 +20,7 @@ class SettingsPage(BasePage):
         # Wire signals
         self._ws.connected.connect(self._on_connected)
         self._ws.disconnected.connect(self._on_disconnected)
+        self._ws.reconnecting.connect(self._on_reconnecting)
         self._ws.error_occurred.connect(self._on_error)
 
     def _build_ui(self):
@@ -109,6 +110,11 @@ class SettingsPage(BasePage):
         self.connect_btn.setText("Reconnect")
         self.connect_btn.setEnabled(True)
         self._bar.set_disconnected()
+
+    def _on_reconnecting(self):
+        """D1: Show reconnecting state in the connection bar."""
+        url = f"{self.host_input.text().strip() or 'raspberrypi.local'}:{self.port_input.text().strip() or '9528'}"
+        self._bar.set_reconnecting(url)
 
     def _on_error(self, msg: str):
         InfoBar.error("Connection Error", msg, duration=5000,

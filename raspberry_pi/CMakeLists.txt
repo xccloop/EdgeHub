@@ -31,4 +31,4 @@ target_include_directories(edgehub PRIVATE
 target_link_libraries(edgehub PRIVATE pthread)
 
 # Recommended build flags for Raspberry Pi 4B (ARM Cortex-A72)
-target_compile_options(edgehub PRIVATE -Wall -Wextra -O2)
+target_compile_options(edgehub PRIVATE -Wall -Wextra -O2 -mcpu=cortex-a72)

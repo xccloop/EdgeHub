@@ -43,11 +43,6 @@ public:
     bool is_heartbeat_timeout(uint64_t now_ms) const;
 
 private:
-    static constexpr size_t RX_BUF_SIZE = 8192;
-    uint8_t m_rx_buf[RX_BUF_SIZE];
-    size_t  m_rx_pos = 0;
-
     // feed received data into frame parser
     void feed(const uint8_t *data, size_t len);
-    void consume_bytes(size_t n);
 };

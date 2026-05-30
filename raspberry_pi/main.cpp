@@ -106,13 +106,16 @@ int main() {
             else if (conn_mgr.has(fd)) {
                 auto *ch = conn_mgr.get(fd);
 
-                if (ev & (EPOLLERR | EPOLLHUP)) {
-                    LOG("BOARD ERROR      board=%s fd=%d",
-                        ch->board_id.empty() ? "(unregistered)" : ch->board_id.c_str(), fd);
+                if (ev & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                    LOG("BOARD ERROR      board=%s fd=%d events=0x%x",
+                        ch->board_id.empty() ? "(unregistered)" : ch->board_id.c_str(),
+                        fd, ev);
                     if (!ch->board_id.empty()) {
                         router.broadcast_event("offline", ch->board_id, "connection error");
                     }
-                    ep.del(fd);
+                    if (!ep.del(fd)) {
+                        LOG("BOARD ERROR      ep.del(%d) failed in error handler", fd);
+                    }
                     conn_mgr.remove(fd);
                     continue;
                 }
@@ -123,7 +126,7 @@ int main() {
                     if (ch->parser.fatal()) {
                         LOG("BOARD REJECT     fd=%d reason=unsupported protocol version",
                             fd);
-                        ep.del(fd);
+                        if (!ep.del(fd)) LOG("BOARD REJECT     ep.del(%d) failed", fd);
                         conn_mgr.remove(fd);
                         continue;
                     }
@@ -135,7 +138,7 @@ int main() {
                             router.broadcast_event("offline", ch->board_id,
                                                     ch->close_reason);
                         }
-                        ep.del(fd);
+                        if (!ep.del(fd)) LOG("BOARD DISCONNECT ep.del(%d) failed", fd);
                         conn_mgr.remove(fd);
                     }
                 }
@@ -150,11 +153,11 @@ int main() {
         for (auto *ch : timed_out) {
             LOG("BOARD TIMEOUT    board=%s reason=heartbeat (%ds)",
                 ch->board_id.empty() ? "(unregistered)" : ch->board_id.c_str(),
-                ch->heartbeat_miss_count * BoardChannel::HEARTBEAT_TIMEOUT_MS / 1000);
+                BoardChannel::HEARTBEAT_TIMEOUT_MS * BoardChannel::MAX_MISS_COUNT / 1000);
             if (!ch->board_id.empty()) {
                 router.broadcast_event("offline", ch->board_id, "heartbeat timeout");
             }
-            ep.del(ch->fd);
+            if (!ep.del(ch->fd)) LOG("BOARD TIMEOUT    ep.del(%d) failed", ch->fd);
             conn_mgr.remove(ch->fd);
         }
     }
