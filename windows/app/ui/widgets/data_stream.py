@@ -98,6 +98,7 @@ class DataStreamWidget(QWidget):
             cursor.movePosition(QTextCursor.Start)
             cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor, 50)
             cursor.removeSelectedText()
+            self._line_count -= 50  # 4.1: keep _line_count in sync
 
     def _toggle_pause(self, checked):
         self._paused = checked

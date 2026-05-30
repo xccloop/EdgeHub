@@ -10,8 +10,9 @@
 #include <cstdio>
 #include <cstring>
 #include <csignal>
+#include <atomic>
 
-static volatile bool g_running = true;
+static std::atomic<bool> g_running{true};
 
 static void sig_handler(int) {
     g_running = false;
@@ -76,19 +77,20 @@ int main() {
                     if (!ch2) return;
 
                     if (f.type == TYPE_TELEMETRY && ch2->board_id.empty()) {
-                        ch2->board_id = MessageRouter::extract_board_id(
+                        auto extracted = MessageRouter::extract_board_id(
                             f.payload, f.payload_len);
-                        ch2->state = BoardState::ONLINE;
-                        LOG("BOARD REGISTER   board=%s",
-                            ch2->board_id.empty() ? "(no board_id)" : ch2->board_id.c_str());
-                        if (!ch2->board_id.empty()) {
+                        if (!extracted.empty()) {
+                            ch2->board_id = extracted;
+                            ch2->state = BoardState::ONLINE;
+                            LOG("BOARD REGISTER   board=%s", ch2->board_id.c_str());
                             router.broadcast_event("online", ch2->board_id);
                         }
+                        // 4.2: no LOG when board_id extraction failed — board
+                        // stays unregistered, heartbeat timeout will handle it
                     }
                     if (f.type == TYPE_HEARTBEAT) {
                         if (!ch2->board_id.empty()) {
                             ch2->last_heartbeat_ms = get_time_ms();
-                            ch2->heartbeat_miss_count = 0;
                         }
                     }
                     ch2->msg_count++;  // count frames, not raw bytes
@@ -152,7 +154,7 @@ int main() {
         for (auto *ch : timed_out) {
             LOG("BOARD TIMEOUT    board=%s reason=heartbeat (%ds)",
                 ch->board_id.empty() ? "(unregistered)" : ch->board_id.c_str(),
-                BoardChannel::HEARTBEAT_TIMEOUT_MS * BoardChannel::MAX_MISS_COUNT / 1000);
+                BoardChannel::MAX_TIMEOUT_DURATION_MS / 1000);
             if (!ch->board_id.empty()) {
                 router.broadcast_event("offline", ch->board_id, "heartbeat timeout");
             }

@@ -46,19 +46,22 @@ std::vector<BoardChannel*> ConnectionManager::check_heartbeats(uint64_t now_ms) 
     std::vector<BoardChannel*> timed_out;
     for (auto &pair : m_channels) {
         auto &ch = pair.second;
-        // P3: do NOT skip OFFLINE boards — unregistered boards start OFFLINE
-        // and must still be subject to heartbeat timeout (spec: "若设备持续只发
-        // Heartbeat 不发 Telemetry, 主动断开"). Boards that are OFFLINE due to
-        // a prior disconnection have already been removed from the map.
 
-        // use is_heartbeat_timeout() per spec — 5s threshold, 3 consecutive strikes
         if (ch.is_heartbeat_timeout(now_ms)) {
-            ch.heartbeat_miss_count++;
-            if (ch.heartbeat_miss_count >= BoardChannel::MAX_MISS_COUNT) {
+            // P0: record first-timeout timestamp; only disconnect after
+            // total timeout duration exceeds MAX_TIMEOUT_DURATION_MS (15s).
+            if (ch.heartbeat_timeout_start_ms == 0) {
+                ch.heartbeat_timeout_start_ms = now_ms;
+            }
+            uint64_t elapsed = now_ms - ch.heartbeat_timeout_start_ms;
+            if (elapsed > BoardChannel::MAX_TIMEOUT_DURATION_MS) {
                 ch.state = BoardState::OFFLINE;
                 ch.close_reason = "heartbeat timeout";
                 timed_out.push_back(&ch);
             }
+        } else {
+            // heartbeat is fresh — reset timeout tracking
+            ch.heartbeat_timeout_start_ms = 0;
         }
     }
     return timed_out;

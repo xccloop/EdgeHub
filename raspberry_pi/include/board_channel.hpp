@@ -21,10 +21,10 @@ public:
     // heartbeat
     uint64_t connect_time_ms = 0;
     uint64_t last_heartbeat_ms = 0;
-    int      heartbeat_miss_count = 0;
+    uint64_t heartbeat_timeout_start_ms = 0; // P0: first-timeout timestamp
     static constexpr int HEARTBEAT_TIMEOUT_MS = 5000;
     static constexpr int HEARTBEAT_GRACE_MS   = 10000;
-    static constexpr int MAX_MISS_COUNT       = 3;    // 3 * 5s = 15s
+    static constexpr int MAX_TIMEOUT_DURATION_MS = 15000; // 3 × 5s
 
     // stats
     uint64_t msg_count = 0;
