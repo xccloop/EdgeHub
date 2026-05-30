@@ -1,27 +1,16 @@
-"""Single device detail page — Phase 2 placeholder."""
+"""Device detail — Phase 2 placeholder."""
 
 from PyQt5.QtWidgets import QLabel
+from PyQt5.QtGui import QFont
 from .base_page import BasePage
 
 
 class DevicePage(BasePage):
-    """Detailed device view — real-time waveform charts coming in Phase 2."""
-
     def __init__(self, parent=None):
         super().__init__("Device Detail", parent)
-
-        title = QLabel("Device Detail")
-        title.setStyleSheet("font-size: 22px; font-weight: 700; color: #e8e0d5; letter-spacing: 1px;")
-        self.add_widget(title)
-
-        msg = QLabel(
-            "Select a device from the Dashboard to view real-time waveforms.\n\n"
-            "Phase 2 will include IMU charts, parameter history, and command console."
-        )
-        msg.setWordWrap(True)
-        msg.setStyleSheet("""
-            font-size: 13px; color: #555568; font-weight: 300;
-            background: transparent; line-height: 1.6;
-        """)
-        self.add_widget(msg)
-        self.add_stretch()
+        t = QLabel("Device Detail"); t.setFont(QFont("Quicksand", 24, QFont.Bold))
+        t.setStyleSheet("color: #1e3a5f;"); self.add_widget(t)
+        m = QLabel("Select a device from the Dashboard to view real-time waveforms.\n\nPhase 2: IMU charts, parameter history, command console.")
+        m.setWordWrap(True); m.setFont(QFont("Quicksand", 12))
+        m.setStyleSheet("color: #64748b; background:transparent; line-height:1.6;")
+        self.add_widget(m); self.add_stretch()

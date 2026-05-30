@@ -1,4 +1,4 @@
-"""Soft, refined real-time JSON data stream viewer."""
+"""Clean data stream viewer — white bg, blue accents, Quicksand font."""
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                               QTextEdit, QPushButton, QLabel)
@@ -7,121 +7,63 @@ from PyQt5.QtGui import QFont, QTextCursor
 
 
 class DataStreamWidget(QWidget):
-    """Scrolling JSON log with warm, readable styling."""
-
     MAX_LINES = 500
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._paused = False
-        self._line_count = 0
+        self._paused = False; self._line_count = 0
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        # Toolbar
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(4, 0, 4, 0)
+        l = QVBoxLayout(self); l.setContentsMargins(0,0,0,0); l.setSpacing(8)
+        tb = QHBoxLayout(); tb.setContentsMargins(4,0,4,0)
 
         self.title = QLabel("Data Stream")
-        self.title.setStyleSheet("""
-            font-size: 13px; font-weight: 600; color: #8b8b9e;
-            letter-spacing: 0.4px;
-        """)
-
+        self.title.setFont(QFont("Quicksand", 13, QFont.Bold))
+        self.title.setStyleSheet("color: #1e3a5f;")
         self.line_count_label = QLabel("0 lines")
-        self.line_count_label.setStyleSheet("font-size: 11px; color: #555568;")
+        self.line_count_label.setFont(QFont("Quicksand", 10))
+        self.line_count_label.setStyleSheet("color: #94a3b8;")
 
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.04); color: #8b8b9e;
-                border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
-                padding: 4px 12px; font-size: 11px; font-weight: 500;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.08); color: #e8e0d5; }
-        """)
+        btn_css = """
+            QPushButton { background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;
+                border-radius:8px; padding:5px 14px; font-family:'Quicksand','Segoe UI';
+                font-size:11px; font-weight:700; }
+            QPushButton:hover { background:#e2e8f0; color:#1e3a5f; }
+            QPushButton:checked { background:#2563eb; color:#fff; border-color:#2563eb; }
+        """
+        self.clear_btn = QPushButton("Clear"); self.clear_btn.setStyleSheet(btn_css)
         self.clear_btn.clicked.connect(self._clear)
+        self.pause_btn = QPushButton("Pause"); self.pause_btn.setCheckable(True)
+        self.pause_btn.setStyleSheet(btn_css); self.pause_btn.toggled.connect(self._tp)
 
-        self.pause_btn = QPushButton("Pause")
-        self.pause_btn.setCheckable(True)
-        self.pause_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.04); color: #8b8b9e;
-                border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
-                padding: 4px 12px; font-size: 11px; font-weight: 500;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.08); color: #e8e0d5; }
-            QPushButton:checked { background: rgba(255,107,107,0.15); color: #ff6b6b;
-                                  border-color: rgba(255,107,107,0.2); }
-        """)
-        self.pause_btn.toggled.connect(self._toggle_pause)
+        tb.addWidget(self.title); tb.addStretch(); tb.addWidget(self.line_count_label)
+        tb.addSpacing(8); tb.addWidget(self.clear_btn); tb.addWidget(self.pause_btn)
+        l.addLayout(tb)
 
-        toolbar.addWidget(self.title)
-        toolbar.addStretch()
-        toolbar.addWidget(self.line_count_label)
-        toolbar.addSpacing(8)
-        toolbar.addWidget(self.clear_btn)
-        toolbar.addWidget(self.pause_btn)
-        layout.addLayout(toolbar)
-
-        # Text area
-        self.text = QTextEdit()
-        self.text.setReadOnly(True)
+        self.text = QTextEdit(); self.text.setReadOnly(True)
         self.text.setFont(QFont("Cascadia Code", 10))
         self.text.setStyleSheet("""
-            QTextEdit {
-                background-color: rgba(10, 10, 22, 0.6);
-                color: #cdd6f4;
-                border: 1px solid rgba(255,255,255,0.05);
-                border-radius: 14px;
-                padding: 12px;
-                selection-background-color: rgba(255,107,107,0.2);
-            }
+            QTextEdit { background:#ffffff; color:#334155; border:1px solid #e2e8f0;
+                border-radius:12px; padding:12px; selection-background-color: rgba(37,99,235,0.12); }
         """)
-        layout.addWidget(self.text)
+        l.addWidget(self.text)
 
-    def append(self, board_id: str, msg_type: str, json_str: str):
-        if self._paused:
-            return
-
-        color_map = {
-            "telemetry": "#a6e3a1",
-            "heartbeat": "#89b4fa",
-            "event": "#fab387",
-            "online": "#94e2d5",
-            "offline": "#f38ba8",
-        }
-        color = color_map.get(msg_type, "#cdd6f4")
-
-        self._line_count += 1
-        self.line_count_label.setText(f"{self._line_count} lines")
-
-        html = (
-            f'<span style="color:#44445a;">[{self._line_count}]</span> '
-            f'<span style="color:{color};font-weight:500;">[{board_id}]</span> '
-            f'<span style="color:#6c6c85;">{msg_type}</span> '
-            f'<span style="color:#cdd6f4;">{json_str[:300]}</span><br>'
-        )
+    def append(self, board_id, msg_type, json_str):
+        if self._paused: return
+        cm = {"telemetry":"#2563eb","heartbeat":"#0284c7","event":"#ea580c","online":"#16a34a","offline":"#dc2626"}
+        c = cm.get(msg_type, "#64748b")
+        self._line_count += 1; self.line_count_label.setText(f"{self._line_count} lines")
+        html = (f'<span style="color:#cbd5e1;">[{self._line_count}]</span> '
+                f'<span style="color:{c};font-weight:700;">[{board_id}]</span> '
+                f'<span style="color:#94a3b8;">{msg_type}</span> '
+                f'<span style="color:#475569;">{json_str[:300]}</span><br>')
+        self.text.moveCursor(QTextCursor.End); self.text.insertHtml(html)
         self.text.moveCursor(QTextCursor.End)
-        self.text.insertHtml(html)
-        self.text.moveCursor(QTextCursor.End)
-
         if self._line_count > self.MAX_LINES:
-            cursor = self.text.textCursor()
-            cursor.movePosition(QTextCursor.Start)
-            cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor, 50)
-            cursor.removeSelectedText()
-            self._line_count -= 50
+            cur = self.text.textCursor(); cur.movePosition(QTextCursor.Start)
+            cur.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor, 50)
+            cur.removeSelectedText(); self._line_count -= 50
 
-    def _toggle_pause(self, checked):
-        self._paused = checked
-        self.pause_btn.setText("Resume" if checked else "Pause")
-
-    def _clear(self):
-        self.text.clear()
-        self._line_count = 0
-        self.line_count_label.setText("0 lines")
+    def _tp(self, c): self._paused = c; self.pause_btn.setText("Resume" if c else "Pause")
+    def _clear(self): self.text.clear(); self._line_count = 0; self.line_count_label.setText("0 lines")
