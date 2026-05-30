@@ -1,97 +1,74 @@
-"""WebSocket client with exponential-backoff auto-reconnect."""
+"""WebSocket client using websocket-client library — no PyQt5 dependency."""
 
-from PyQt5.QtCore import QUrl, QTimer, QObject, pyqtSignal
-from PyQt5.QtWebSockets import QWebSocket
-from PyQt5.QtNetwork import QAbstractSocket
+import threading
+import time
+import websocket
 
 
-class WsClient(QObject):
-    """Maintains a WebSocket connection to the EdgeHub server.
+class WsClient:
+    """Maintains a WebSocket connection to the EdgeHub server with auto-reconnect."""
 
-    Features:
-      - Exponential backoff reconnection (1s → 2s → 4s → ... → 30s)
-      - Device models persist across reconnections
-      - Signals run on Qt main thread, no cross-thread issues
-    """
-
-    connected = pyqtSignal()
-    disconnected = pyqtSignal()
-    reconnecting = pyqtSignal()          # D1: emitted when scheduled reconnect
-    message_received = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._ws = QWebSocket()
-        self._url = QUrl()
-        self._retry_delay = 1000       # ms
-        self._max_delay = 30000        # ms
-        self._connect_timeout = 10000  # ms — cancel if not connected within this
-        self._reconnect_timer = QTimer(self)
-        self._reconnect_timer.setSingleShot(True)
-        self._timeout_timer = QTimer(self)
-        self._timeout_timer.setSingleShot(True)
+    def __init__(self):
+        self._url = ""
+        self._ws: websocket.WebSocketApp | None = None
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self._retry_delay = 1
+        self._max_delay = 30
         self._intentional = False
-        self._connecting = False       # R1: re-entrancy guard
 
-        self._ws.connected.connect(self._on_connected)
-        self._ws.disconnected.connect(self._on_disconnected)
-        self._ws.textMessageReceived.connect(self.message_received)
-        self._reconnect_timer.timeout.connect(self._try_connect)
-        self._timeout_timer.timeout.connect(self._on_connect_timeout)
-
-    # ---- public API ----
+        # Callbacks
+        self.on_connected = None
+        self.on_disconnected = None
+        self.on_message = None
 
     def connect_to(self, host: str, port: int = 9528):
-        """Connect to ws://host:port/ws."""
-        if self._connecting:
-            return  # R1: prevent double-connect
         self._intentional = True
-        self._connecting = True
-        self._url = QUrl(f"ws://{host}:{port}/ws")
-        self._retry_delay = 1000
-        self._ws.open(self._url)
-        self._timeout_timer.start(self._connect_timeout)
+        self._retry_delay = 1
+        self._url = f"ws://{host}:{port}/ws"
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
 
     def disconnect(self):
-        """Intentionally disconnect."""
         self._intentional = False
-        self._connecting = False
-        self._reconnect_timer.stop()
-        self._timeout_timer.stop()
-        self._ws.close()
+        self._running = False
+        if self._ws:
+            self._ws.close()
 
     def is_connected(self) -> bool:
-        return self._ws.state() == QAbstractSocket.ConnectedState
+        return self._ws is not None and self._ws.sock is not None and self._ws.sock.connected
 
-    # ---- internal ----
+    def _run(self):
+        while self._running:
+            self._ws = websocket.WebSocketApp(
+                self._url,
+                on_open=lambda ws: self._on_open(),
+                on_close=lambda ws, code, msg: self._on_close(),
+                on_message=lambda ws, msg: self._on_msg(msg),
+                on_error=lambda ws, err: self._on_error(err),
+            )
+            self._ws.run_forever()
 
-    def _on_connected(self):
-        self._retry_delay = 1000
-        self._connecting = False
-        self._timeout_timer.stop()
-        self.connected.emit()
+            if not self._intentional or not self._running:
+                break
 
-    def _on_disconnected(self):
-        self._connecting = False
-        self._timeout_timer.stop()
-        self.disconnected.emit()
-        if not self._intentional:
-            return
-        # Schedule reconnect with backoff
-        self.reconnecting.emit()
-        self._reconnect_timer.start(self._retry_delay)
-        self._retry_delay = min(self._retry_delay * 2, self._max_delay)
+            # Exponential backoff
+            time.sleep(self._retry_delay)
+            self._retry_delay = min(self._retry_delay * 2, self._max_delay)
 
-    def _try_connect(self):
-        if self._intentional and not self.is_connected() and not self._connecting:
-            self._connecting = True
-            self._ws.open(self._url)
-            self._timeout_timer.start(self._connect_timeout)
+    def _on_open(self):
+        self._retry_delay = 1
+        if self.on_connected:
+            self.on_connected()
 
-    def _on_connect_timeout(self):
-        """B7: connection attempt timed out — cancel and allow retry."""
-        self._connecting = False
-        self._ws.close()
-        self.error_occurred.emit(
-            f"Connection timed out after {self._connect_timeout // 1000}s")
+    def _on_close(self):
+        if self.on_disconnected:
+            self.on_disconnected()
+
+    def _on_msg(self, msg: str):
+        if self.on_message:
+            self.on_message(msg)
+
+    def _on_error(self, err):
+        pass  # Already handled on_close
