@@ -85,13 +85,20 @@ class SettingsPage(BasePage):
             self.connect_btn.setText("Connect")
         else:
             host = self.host_input.text().strip() or "raspberrypi.local"
-            port = int(self.port_input.text().strip() or "9528")
+            # P6: validate port input
+            try:
+                port = int(self.port_input.text().strip() or "9528")
+            except ValueError:
+                InfoBar.error("Invalid Port", "Port must be a number.",
+                              duration=3000, position=InfoBarPosition.TOP, parent=self)
+                return
             self._ws.connect_to(host, port)
             self.connect_btn.setText("Connecting...")
             self.connect_btn.setEnabled(False)
             # B7: re-enable after 12s if still not connected
             from PyQt5.QtCore import QTimer
-            QTimer.singleShot(12000, self._reset_if_still_connecting)
+            # P8: pass receiver so timer auto-cancels if page is destroyed
+            QTimer.singleShot(12000, self, self._reset_if_still_connecting)
 
     def _reset_if_still_connecting(self):
         if not self._connected:
