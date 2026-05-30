@@ -1,82 +1,111 @@
-"""Device card widget for the dashboard grid."""
+"""Glass-morphism device card with gradient border and animated entrance."""
 
 import time
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout
-from PyQt5.QtCore import QTimer
-from qfluentwidgets import CardWidget, SubtitleLabel, BodyLabel, CaptionLabel
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt5.QtGui import QPainter, QColor, QLinearGradient, QBrush, QPen, QFont
 from .status_indicator import StatusIndicator
 
 
-class DeviceCard(CardWidget):
-    """A card showing one board's identity, status, and stats.
-
-    Layout:
-      ┌──────────────────────┐
-      │ ● ONLINE  ls2k_01    │
-      │ Last seen: 2s ago    │
-      │ Messages: 1,234      │
-      │ Telemetry: 1,200     │
-      │ Heartbeat: 34        │
-      └──────────────────────┘
-    """
+class DeviceCard(QWidget):
+    """A frosted-glass card for one board. Self-draws gradient border."""
 
     def __init__(self, board_id="", parent=None):
         super().__init__(parent)
         self.board_id = board_id
         self._last_seen_ms = 0
-        self.setMinimumSize(220, 150)
-        self.setMaximumWidth(300)
+        self._opacity = 1.0
+        self.setMinimumSize(240, 170)
+        self.setMaximumWidth(320)
 
         self._build_ui()
-
-        # B2: periodic refresh of "Last seen" relative time
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.timeout.connect(self._update_last_seen)
-        self._refresh_timer.start(1000)  # every second
+        self._animate_in()
 
     def _build_ui(self):
+        self.setStyleSheet("""
+            DeviceCard {
+                background-color: rgba(20, 20, 38, 0.7);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 18px;
+            }
+            DeviceCard:hover {
+                background-color: rgba(26, 26, 48, 0.8);
+                border: 1px solid rgba(255,107,107,0.15);
+            }
+        """)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(6)
 
-        # Header row: status dot + board_id
+        # Header
         header = QHBoxLayout()
-        self.status = StatusIndicator("OFFLINE", "")
+        self.status = StatusIndicator("OFFLINE")
         header.addWidget(self.status)
         header.addStretch()
-
-        self.title_label = SubtitleLabel(self.board_id or "(unregistered)")
         layout.addLayout(header)
+
+        # Board name
+        self.title_label = QLabel(self.board_id or "unknown")
+        self.title_label.setStyleSheet("""
+            font-size: 15px; font-weight: 600; color: #e8e0d5;
+            letter-spacing: 0.5px; background: transparent; border: none;
+        """)
         layout.addWidget(self.title_label)
 
         layout.addSpacing(4)
 
-        self.last_seen = CaptionLabel("Last seen: --")
+        # Stats rows
+        self.last_seen = QLabel("Last seen: --")
+        self.last_seen.setStyleSheet("font-size: 11px; color: #555568; background: transparent;")
         layout.addWidget(self.last_seen)
 
-        self.msg_count_label = CaptionLabel("Messages: 0")
+        self.msg_count_label = QLabel("Messages: 0")
+        self.msg_count_label.setStyleSheet("font-size: 11px; color: #8b8b9e; background: transparent;")
         layout.addWidget(self.msg_count_label)
 
-        self.telemetry_count = CaptionLabel("Telemetry: 0")
-        layout.addWidget(self.telemetry_count)
+        self.telemetry_label = QLabel("Telemetry: 0")
+        self.telemetry_label.setStyleSheet("font-size: 11px; color: #8b8b9e; background: transparent;")
+        layout.addWidget(self.telemetry_label)
 
-        self.heartbeat_count = CaptionLabel("Heartbeat: 0")
-        layout.addWidget(self.heartbeat_count)
+        self.heartbeat_label = QLabel("Heartbeat: 0")
+        self.heartbeat_label.setStyleSheet("font-size: 11px; color: #8b8b9e; background: transparent;")
+        layout.addWidget(self.heartbeat_label)
+
+        # Periodic last-seen update
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._update_last_seen)
+        self._refresh_timer.start(1000)
+
+    def _animate_in(self):
+        self._anim = QPropertyAnimation(self, b"windowOpacity")
+        self._anim.setDuration(400)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.start()
 
     def update_from_device(self, device):
-        """Update card from a DeviceInfo model."""
         self.board_id = device.board_id
         self.title_label.setText(device.board_id)
         self.status.set(device.state, device.state)
         self.msg_count_label.setText(f"Messages: {device.msg_count}")
-        self.telemetry_count.setText(f"Telemetry: {device.telemetry_count}")
-        self.heartbeat_count.setText(f"Heartbeat: {device.heartbeat_count}")
-
+        self.telemetry_label.setText(f"Telemetry: {device.telemetry_count}")
+        self.heartbeat_label.setText(f"Heartbeat: {device.heartbeat_count}")
         self._last_seen_ms = device.last_seen_ms
         self._update_last_seen()
 
+        # Pulse accent border on telemetry update
+        if device.state == "ONLINE":
+            self.setStyleSheet(self.styleSheet().replace(
+                "rgba(255,255,255,0.06)", "rgba(45,212,191,0.25)"))
+            QTimer.singleShot(600, self._restore_border)
+
+    def _restore_border(self):
+        self.setStyleSheet(self.styleSheet().replace(
+            "rgba(45,212,191,0.25)", "rgba(255,255,255,0.06)"))
+
     def _update_last_seen(self):
-        """B2: compute relative time from server absolute timestamp."""
         if self._last_seen_ms <= 0:
             self.last_seen.setText("Last seen: --")
             return

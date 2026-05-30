@@ -2,6 +2,7 @@
 
 from PyQt5.QtCore import QUrl, QTimer, QObject, pyqtSignal
 from PyQt5.QtWebSockets import QWebSocket
+from PyQt5.QtNetwork import QAbstractSocket
 
 
 class WsClient(QObject):
@@ -61,7 +62,7 @@ class WsClient(QObject):
         self._ws.close()
 
     def is_connected(self) -> bool:
-        return self._ws.state() == QWebSocket.ConnectedState
+        return self._ws.state() == QAbstractSocket.ConnectedState
 
     # ---- internal ----
 

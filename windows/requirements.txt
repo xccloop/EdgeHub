@@ -1,5 +1,3 @@
 # EdgeHub Windows Client Dependencies
-# Install PyQt5 via conda first: conda install pyqt=5 -c conda-forge
-# Then: pip install -r requirements.txt
-PyQt-Fluent-Widgets>=1.5
+# Install PyQt5 via conda: conda install pyqt=5 pyqtgraph -c conda-forge
 pyqtgraph>=0.13

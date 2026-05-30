@@ -1,15 +1,14 @@
-"""EdgeHub Windows Client — entry point."""
+"""EdgeHub Windows Client — Fluid Glass Dashboard."""
 
 import sys
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
-from qfluentwidgets import Theme
+from PyQt5.QtGui import QFont
 
 from .api.ws_client import WsClient
 from .backend.parser import parse_message
 from .backend.dispatcher import DataDispatcher
 from .ui.main_window import MainWindow
-from .ui.styles.theme import apply_theme
 
 
 def main():
@@ -21,13 +20,15 @@ def main():
     app.setApplicationName("EdgeHub")
     app.setOrganizationName("EdgeHub")
 
-    apply_theme(Theme.DARK)
+    # Global default font — soft, warm, rounded feel
+    font = QFont("Segoe UI", 10)
+    font.setStyleStrategy(QFont.PreferAntialias)
+    app.setFont(font)
 
-    # Core pipeline
+    # Pipeline (unchanged)
     ws_client = WsClient()
     dispatcher = DataDispatcher()
 
-    # Main window
     window = MainWindow(ws_client, dispatcher, parse_message)
     window.show()
 

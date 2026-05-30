@@ -14,7 +14,6 @@ args = [
     "--windowed",
     "--clean",
     "--add-data", f"app/ui/styles{os.pathsep}ui/styles",
-    "--hidden-import", "qfluentwidgets",
     "--hidden-import", "PyQt5.QtWebSockets",
     "--hidden-import", "PyQt5.QtWebChannel",
 ]

@@ -1,14 +1,13 @@
-"""Settings page — server connection controls."""
+"""Settings page — warm, refined connection controls."""
 
-from PyQt5.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout
-from PyQt5.QtCore import Qt
-from qfluentwidgets import (LineEdit, PushButton, SubtitleLabel,
-                             BodyLabel, CardWidget, InfoBar, InfoBarPosition)
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+                              QLineEdit, QPushButton, QLabel, QFrame)
+from PyQt5.QtCore import QTimer, Qt
 from .base_page import BasePage
 
 
 class SettingsPage(BasePage):
-    """Connection settings: address input, connect/disconnect, status."""
+    """Connection settings with glass input fields and warm feedback."""
 
     def __init__(self, ws_client, connection_bar, parent=None):
         super().__init__("Settings", parent)
@@ -17,93 +16,131 @@ class SettingsPage(BasePage):
         self._connected = False
         self._build_ui()
 
-        # Wire signals
         self._ws.connected.connect(self._on_connected)
         self._ws.disconnected.connect(self._on_disconnected)
         self._ws.reconnecting.connect(self._on_reconnecting)
         self._ws.error_occurred.connect(self._on_error)
 
     def _build_ui(self):
-        # Server card
-        card = CardWidget()
-        card_layout = QVBoxLayout()
-        card_layout.setContentsMargins(20, 16, 20, 16)
-        card_layout.setSpacing(12)
+        # Title
+        title = QLabel("Connection")
+        title.setStyleSheet("font-size: 22px; font-weight: 700; color: #e8e0d5; letter-spacing: 1px;")
+        self.add_widget(title)
 
-        card_layout.addWidget(SubtitleLabel("Server Connection"))
+        # Card
+        card = QFrame()
+        card.setStyleSheet("""
+            QFrame {
+                background-color: rgba(20, 20, 38, 0.6);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 18px;
+            }
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 18, 24, 18)
+        card_layout.setSpacing(14)
 
-        desc = BodyLabel("Connect to the EdgeHub server running on Raspberry Pi.")
+        desc = QLabel("Connect to your EdgeHub server running on Raspberry Pi.")
         desc.setWordWrap(True)
+        desc.setStyleSheet("font-size: 12px; color: #8b8b9e; font-weight: 300; background: transparent;")
         card_layout.addWidget(desc)
 
-        # Input row
+        # Host + Port row
         input_row = QHBoxLayout()
-        self.host_input = LineEdit()
+        self.host_input = QLineEdit()
         self.host_input.setPlaceholderText("raspberrypi.local")
-        self.host_input.setFixedWidth(220)
+        self.host_input.setFixedWidth(200)
+        self.host_input.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(10,10,22,0.6); color: #e8e0d5;
+                border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+                padding: 8px 12px; font-size: 13px; font-weight: 400;
+            }
+            QLineEdit:focus { border-color: rgba(255,107,107,0.4); }
+        """)
 
-        self.port_input = LineEdit()
+        self.port_input = QLineEdit()
         self.port_input.setPlaceholderText("9528")
-        self.port_input.setFixedWidth(80)
+        self.port_input.setFixedWidth(72)
+        self.port_input.setStyleSheet(self.host_input.styleSheet())
 
-        input_row.addWidget(BodyLabel("Host:"))
+        input_row.addWidget(QLabel("Host"))
         input_row.addWidget(self.host_input)
         input_row.addSpacing(12)
-        input_row.addWidget(BodyLabel("Port:"))
+        input_row.addWidget(QLabel("Port"))
         input_row.addWidget(self.port_input)
         input_row.addStretch()
 
+        for lbl in input_row.children():
+            if isinstance(lbl, QLabel):
+                lbl.setStyleSheet("font-size: 12px; color: #8b8b9e; font-weight: 500; letter-spacing: 0.3px;")
+
         card_layout.addLayout(input_row)
 
-        # Buttons
-        btn_row = QHBoxLayout()
-        self.connect_btn = PushButton("Connect")
+        # Connect button
+        self.connect_btn = QPushButton("Connect")
+        self.connect_btn.setCursor(Qt.PointingHandCursor if hasattr(Qt, 'PointingHandCursor') else Qt.ArrowCursor)
+        self.connect_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #ff6b6b, stop:1 #ff8e6b);
+                color: #fff; border: none; border-radius: 12px;
+                padding: 10px 32px; font-size: 13px; font-weight: 600;
+                letter-spacing: 0.5px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #ff7b7b, stop:1 #ff9e7b);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #e55a5a, stop:1 #e57a5a);
+            }
+            QPushButton:disabled {
+                background: rgba(255,255,255,0.06); color: #555568;
+            }
+        """)
         self.connect_btn.clicked.connect(self._toggle_connection)
+
+        btn_row = QHBoxLayout()
         btn_row.addWidget(self.connect_btn)
         btn_row.addStretch()
         card_layout.addLayout(btn_row)
 
-        card.setLayout(card_layout)
+        # Status feedback
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("font-size: 11px; color: #555568; font-weight: 300; background: transparent;")
+        card_layout.addWidget(self.status_label)
+
         self.add_widget(card)
-
-        # --- Phase 2 placeholder ---
-        card2 = CardWidget()
-        card2_layout = QVBoxLayout()
-        card2_layout.setContentsMargins(20, 16, 20, 16)
-        card2_layout.addWidget(SubtitleLabel("Advanced"))
-        card2_layout.addWidget(BodyLabel(
-            "Multi-server management, TLS certificates, and auto-reconnect "
-            "tuning will be available in Phase 2."))
-        card2.setLayout(card2_layout)
-        self.add_widget(card2)
-
         self.add_stretch()
 
     def _toggle_connection(self):
         if self._connected:
             self._ws.disconnect()
             self.connect_btn.setText("Connect")
+            self.status_label.setText("")
         else:
             host = self.host_input.text().strip() or "raspberrypi.local"
-            # P6: validate port input
             try:
                 port = int(self.port_input.text().strip() or "9528")
             except ValueError:
-                InfoBar.error("Invalid Port", "Port must be a number.",
-                              duration=3000, position=InfoBarPosition.TOP, parent=self)
+                self.status_label.setText("Invalid port number")
+                self.status_label.setStyleSheet("font-size: 11px; color: #ef4444; font-weight: 400; background: transparent;")
                 return
             self._ws.connect_to(host, port)
             self.connect_btn.setText("Connecting...")
             self.connect_btn.setEnabled(False)
-            # B7: re-enable after 12s if still not connected
-            from PyQt5.QtCore import QTimer
-            # P8: pass receiver so timer auto-cancels if page is destroyed
-            QTimer.singleShot(12000, self, self._reset_if_still_connecting)
+            self.status_label.setText("Connecting...")
+            self.status_label.setStyleSheet("font-size: 11px; color: #f59e0b; font-weight: 400; background: transparent;")
+            QTimer.singleShot(12000, self._reset_if_still_connecting)
 
     def _reset_if_still_connecting(self):
         if not self._connected:
             self.connect_btn.setText("Connect")
             self.connect_btn.setEnabled(True)
+            self.status_label.setText("Connection timed out")
+            self.status_label.setStyleSheet("font-size: 11px; color: #ef4444; font-weight: 400; background: transparent;")
 
     def _on_connected(self):
         self._connected = True
@@ -111,18 +148,21 @@ class SettingsPage(BasePage):
         self.connect_btn.setEnabled(True)
         url = f"{self.host_input.text().strip() or 'raspberrypi.local'}:{self.port_input.text().strip() or '9528'}"
         self._bar.set_connected(url)
+        self.status_label.setText("Connected")
+        self.status_label.setStyleSheet("font-size: 11px; color: #2dd4bf; font-weight: 400; background: transparent;")
 
     def _on_disconnected(self):
         self._connected = False
         self.connect_btn.setText("Reconnect")
         self.connect_btn.setEnabled(True)
         self._bar.set_disconnected()
+        self.status_label.setText("Disconnected")
+        self.status_label.setStyleSheet("font-size: 11px; color: #555568; font-weight: 300; background: transparent;")
 
     def _on_reconnecting(self):
-        """D1: Show reconnecting state in the connection bar."""
         url = f"{self.host_input.text().strip() or 'raspberrypi.local'}:{self.port_input.text().strip() or '9528'}"
         self._bar.set_reconnecting(url)
 
     def _on_error(self, msg: str):
-        InfoBar.error("Connection Error", msg, duration=5000,
-                       position=InfoBarPosition.TOP, parent=self)
+        self.status_label.setText(msg)
+        self.status_label.setStyleSheet("font-size: 11px; color: #ef4444; font-weight: 400; background: transparent;")

@@ -1,50 +1,51 @@
-"""Dashboard page — device card grid showing all connected boards."""
+"""Dashboard — animated glass-card grid for all connected boards."""
 
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QVBoxLayout, QWidget, QLabel, QGridLayout
 from PyQt5.QtCore import Qt
-from qfluentwidgets import SubtitleLabel
 from .base_page import BasePage
 from ..widgets.device_card import DeviceCard
 from ...backend.models import Telemetry, Heartbeat, DeviceEvent, DeviceInfo
 
 
 class DashboardPage(BasePage):
-    """Grid of DeviceCards, one per connected board.
-
-    Subscribes to Telemetry, Heartbeat, and DeviceEvent via DataDispatcher.
-    """
+    """Grid of DeviceCards, one per board. Fluid entrance animation."""
 
     def __init__(self, dispatcher, parent=None):
         super().__init__("Dashboard", parent)
         self._dispatcher = dispatcher
-        self._devices: dict[str, DeviceInfo] = {}     # board_id → DeviceInfo
-        self._cards: dict[str, DeviceCard] = {}        # board_id → DeviceCard
+        self._devices: dict[str, DeviceInfo] = {}
+        self._cards: dict[str, DeviceCard] = {}
 
         self._build_ui()
 
-        # Subscribe to data
         dispatcher.subscribe(Telemetry, self._on_telemetry)
         dispatcher.subscribe(Heartbeat, self._on_heartbeat)
         dispatcher.subscribe(DeviceEvent, self._on_event)
 
     def _build_ui(self):
-        self.title_label = SubtitleLabel("Connected Devices")
-        self.title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        self.title_label = QLabel("Devices")
+        self.title_label.setStyleSheet("""
+            font-size: 22px; font-weight: 700; color: #e8e0d5;
+            letter-spacing: 1px; margin-bottom: 4px;
+        """)
         self.add_widget(self.title_label)
 
-        # Card container — vertical stack for Phase 1, grid layout for Phase 2
-        self._card_layout = QVBoxLayout()
-        self._card_layout.setSpacing(12)
-        self._card_layout.setContentsMargins(0, 0, 0, 0)
-        self._card_layout.addStretch()
+        subtitle = QLabel("Connected boards in real-time")
+        subtitle.setStyleSheet("font-size: 12px; color: #555568; font-weight: 300; letter-spacing: 0.4px;")
+        self.add_widget(subtitle)
 
-        self._card_widget = QWidget()
-        self._card_widget.setLayout(self._card_layout)
-        self.add_widget(self._card_widget)
+        # Grid layout for cards
+        self._grid = QGridLayout()
+        self._grid.setSpacing(16)
+        self._grid.setContentsMargins(0, 8, 0, 0)
+        self._grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        self._grid_widget = QWidget()
+        self._grid_widget.setStyleSheet("background: transparent;")
+        self._grid_widget.setLayout(self._grid)
+        self.add_widget(self._grid_widget)
 
         self.add_stretch()
-
-    # ---- event handlers ----
 
     def _on_telemetry(self, t: Telemetry):
         dev = self._ensure_device(t.board_id)
@@ -69,12 +70,9 @@ class DashboardPage(BasePage):
             dev.state = "OFFLINE"
         self._refresh_card(e.board_id)
 
-    # ---- internal ----
-
     def _ensure_device(self, board_id: str) -> DeviceInfo:
         if board_id not in self._devices:
-            self._devices[board_id] = DeviceInfo(
-                board_id=board_id, state="ONLINE")
+            self._devices[board_id] = DeviceInfo(board_id=board_id, state="ONLINE")
         return self._devices[board_id]
 
     def _refresh_card(self, board_id: str):
@@ -83,8 +81,8 @@ class DashboardPage(BasePage):
         if board_id not in self._cards:
             card = DeviceCard(board_id)
             self._cards[board_id] = card
-            # Insert before the trailing stretch
-            self._card_layout.insertWidget(
-                self._card_layout.count() - 1, card)
+            idx = len(self._cards) - 1
+            row, col = divmod(idx, 3)
+            self._grid.addWidget(card, row, col)
 
         self._cards[board_id].update_from_device(dev)

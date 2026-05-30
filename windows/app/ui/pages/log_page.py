@@ -1,16 +1,13 @@
-"""Log page — real-time scrollable JSON data stream."""
+"""Refined log page with soft data stream viewer."""
 
+import json
 from .base_page import BasePage
 from ..widgets.data_stream import DataStreamWidget
 from ...backend.models import Telemetry, Heartbeat, DeviceEvent
-import json
 
 
 class LogPage(BasePage):
-    """Real-time scrolling view of all incoming JSON messages.
-
-    Subscribes to Telemetry, Heartbeat, and DeviceEvent.
-    """
+    """Real-time scrolling JSON log with warm, readable styling."""
 
     def __init__(self, dispatcher, parent=None):
         super().__init__("Log", parent)
@@ -19,7 +16,6 @@ class LogPage(BasePage):
         self._stream = DataStreamWidget()
         self.add_widget(self._stream)
 
-        # Subscribe
         dispatcher.subscribe(Telemetry, self._on_telemetry)
         dispatcher.subscribe(Heartbeat, self._on_heartbeat)
         dispatcher.subscribe(DeviceEvent, self._on_event)

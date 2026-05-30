@@ -1,30 +1,27 @@
-"""Single device detail page — placeholder for Phase 2 waveform charts."""
+"""Single device detail page — Phase 2 placeholder."""
 
-from PyQt5.QtWidgets import QVBoxLayout
-from qfluentwidgets import SubtitleLabel, BodyLabel, CardWidget
+from PyQt5.QtWidgets import QLabel
 from .base_page import BasePage
 
 
 class DevicePage(BasePage):
-    """Detailed view of a single device.
-
-    Phase 2: pyqtgraph real-time waveform plots, parameter sliders,
-    and command console.
-    """
+    """Detailed device view — real-time waveform charts coming in Phase 2."""
 
     def __init__(self, parent=None):
         super().__init__("Device Detail", parent)
 
-        card = CardWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.addWidget(SubtitleLabel("Device Detail"))
-        layout.addWidget(BodyLabel(
-            "Select a device from the Dashboard to view real-time "
-            "waveforms (Phase 2).\n\n"
-            "Planned: IMU charts (ax/ay/gz), parameter history, "
-            "and command console."
-        ))
-        card.setLayout(layout)
-        self.add_widget(card)
+        title = QLabel("Device Detail")
+        title.setStyleSheet("font-size: 22px; font-weight: 700; color: #e8e0d5; letter-spacing: 1px;")
+        self.add_widget(title)
+
+        msg = QLabel(
+            "Select a device from the Dashboard to view real-time waveforms.\n\n"
+            "Phase 2 will include IMU charts, parameter history, and command console."
+        )
+        msg.setWordWrap(True)
+        msg.setStyleSheet("""
+            font-size: 13px; color: #555568; font-weight: 300;
+            background: transparent; line-height: 1.6;
+        """)
+        self.add_widget(msg)
         self.add_stretch()

@@ -1,24 +1,37 @@
-"""Base class for all pages."""
+"""Base page with dark gradient background — all pages inherit from this."""
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from qfluentwidgets import ScrollArea
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QScrollArea
+from PyQt5.QtCore import Qt
 
 
-class BasePage(ScrollArea):
-    """All pages inherit from this. Provides a scrollable container
-    and a standard title property for the sidebar navigation."""
+class BasePage(QScrollArea):
+    """Scrollable page with warm dark background and smooth scrollbar."""
 
     def __init__(self, title: str = "", parent=None):
         super().__init__(parent)
         self._page_title = title
 
+        self.setStyleSheet("""
+            QScrollArea { background-color: #0d0d1a; border: none; }
+            QScrollBar:vertical {
+                background: transparent; width: 6px; margin: 4px 2px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255,255,255,0.08); border-radius: 3px; min-height: 40px;
+            }
+            QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.14); }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
         self._container = QWidget()
+        self._container.setStyleSheet("background-color: transparent;")
         self._layout = QVBoxLayout(self._container)
-        self._layout.setContentsMargins(24, 16, 24, 16)
-        self._layout.setSpacing(16)
+        self._layout.setContentsMargins(28, 20, 28, 20)
+        self._layout.setSpacing(18)
 
         self.setWidget(self._container)
-        self.setWidgetResizable(True)
 
     def title(self) -> str:
         return self._page_title
