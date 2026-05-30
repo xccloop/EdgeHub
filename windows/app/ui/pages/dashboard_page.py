@@ -1,4 +1,4 @@
-"""Dashboard — blue header strip, white glass cards, Quicksand typography."""
+"""Dashboard — blue+orange header, glass cards, hover lift."""
 
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget, QLabel, QGridLayout
 from PyQt5.QtCore import Qt
@@ -20,20 +20,20 @@ class DashboardPage(BasePage):
         dispatcher.subscribe(DeviceEvent, self._on_event)
 
     def _build_ui(self):
-        # Blue gradient header strip
+        # Header — soft blue tint
         hdr = QWidget(); hdr.setFixedHeight(72)
-        hdr.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #eff6ff, stop:0.5 #dbeafe, stop:1 #bfdbfe); border-bottom: 1px solid #bfdbfe;")
+        hdr.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #eef2ff, stop:0.5 #e8eeff, stop:1 #f0f4ff); border-bottom: 1px solid #dce4f7;")
         hl = QHBoxLayout(hdr); hl.setContentsMargins(28,12,28,10)
         tb = QVBoxLayout(); tb.setSpacing(0)
         t1 = QLabel("Devices"); t1.setFont(QFont("Quicksand", 24, QFont.Bold))
-        t1.setStyleSheet("color: #1e3a5f; background:transparent;")
-        t2 = QLabel("Real-time telemetry & heartbeat monitoring")
-        t2.setFont(QFont("Quicksand", 11, QFont.Bold))
-        t2.setStyleSheet("color: #2563eb; background:transparent; letter-spacing:0.4px;")
+        t1.setStyleSheet("color: #1a1a2e; background:transparent;")
+        t2 = QLabel("Real-time telemetry & heartbeat")
+        t2.setFont(QFont("Quicksand", 11, QFont.Medium))
+        t2.setStyleSheet("color: #4a6cf7; background:transparent; letter-spacing:0.3px;")
         tb.addWidget(t1); tb.addWidget(t2); hl.addLayout(tb); hl.addStretch()
         self.board_count = QLabel("0 online")
         self.board_count.setFont(QFont("Quicksand", 12, QFont.Bold))
-        self.board_count.setStyleSheet("color: #2563eb; background:transparent;")
+        self.board_count.setStyleSheet("color: #f97316; background:transparent;")
         hl.addWidget(self.board_count)
         self.add_widget(hdr)
 

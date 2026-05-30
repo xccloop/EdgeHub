@@ -1,4 +1,4 @@
-"""Clean status dot with soft pulse for ONLINE state."""
+"""Status dot with pulse animation."""
 
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtProperty
@@ -8,9 +8,7 @@ from PyQt5.QtGui import QPainter, QColor, QRadialGradient, QBrush
 class PulseDot(QWidget):
     def __init__(self, state="OFFLINE", parent=None):
         super().__init__(parent)
-        self._state = state
-        self._pulse = 1.0
-        self.setFixedSize(12, 12)
+        self._state = state; self._pulse = 1.0; self.setFixedSize(12,12)
         self._anim = QPropertyAnimation(self, b"pulse")
         self._anim.setDuration(1800); self._anim.setStartValue(0.3)
         self._anim.setEndValue(1.0); self._anim.setEasingCurve(QEasingCurve.InOutSine)
@@ -22,24 +20,24 @@ class PulseDot(QWidget):
     pulse = pyqtProperty(float, get_pulse, set_pulse)
 
     def _toggle(self):
-        self._anim.setDirection(QPropertyAnimation.Backward if self._anim.direction() == QPropertyAnimation.Forward else QPropertyAnimation.Forward)
-        self._anim.start()
+        d = QPropertyAnimation.Backward if self._anim.direction() == QPropertyAnimation.Forward else QPropertyAnimation.Forward
+        self._anim.setDirection(d); self._anim.start()
 
     def set_state(self, state):
         self._state = state
-        self._timer.stop() if state != "ONLINE" else self._timer.start(2000)
-        if state != "ONLINE": self._pulse = 1.0
+        if state == "ONLINE": self._timer.start(2000)
+        else: self._timer.stop(); self._pulse = 1.0
         self.update()
 
     def paintEvent(self, event):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        colors = {"ONLINE": QColor("#22c55e"), "OFFLINE": QColor("#cbd5e1"), "RECONNECTING": QColor("#f59e0b")}
-        c = colors.get(self._state, QColor("#cbd5e1"))
-        glow = QRadialGradient(6, 6, 8)
-        glow.setColorAt(0, QColor(c.red(), c.green(), c.blue(), int(50 * self._pulse)))
-        glow.setColorAt(1, QColor(c.red(), c.green(), c.blue(), 0))
-        p.setBrush(QBrush(glow)); p.setPen(Qt.NoPen); p.drawEllipse(-2, -2, 16, 16)
-        p.setBrush(c); p.drawEllipse(2, 2, 8, 8)
+        cm = {"ONLINE":QColor("#10b981"), "OFFLINE":QColor("#cbd5e1"), "RECONNECTING":QColor("#f59e0b")}
+        c = cm.get(self._state, QColor("#cbd5e1"))
+        g = QRadialGradient(6,6,8)
+        g.setColorAt(0, QColor(c.red(),c.green(),c.blue(),int(50*self._pulse)))
+        g.setColorAt(1, QColor(c.red(),c.green(),c.blue(),0))
+        p.setBrush(QBrush(g)); p.setPen(Qt.NoPen); p.drawEllipse(-2,-2,16,16)
+        p.setBrush(c); p.drawEllipse(2,2,8,8)
 
 
 class StatusIndicator(QWidget):
