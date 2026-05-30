@@ -18,6 +18,9 @@ public:
 
     void reset();
 
+    // Fatal error — caller should close the connection.
+    bool fatal() const { return m_fatal; }
+
     // statistics
     size_t total_frames() const { return m_total_frames; }
     size_t crc_errors()    const { return m_crc_errors; }
@@ -37,6 +40,7 @@ private:
     size_t  m_crc_errors = 0;
     size_t  m_len_rejects = 0;
     size_t  m_ver_rejects = 0;
+    bool    m_fatal = false;
 
     void slide_window();
     void consume_bytes(size_t n);

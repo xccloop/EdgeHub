@@ -15,7 +15,7 @@ public:
     int         fd = -1;
     std::string ip;
     std::string board_id;      // empty until first Telemetry registered
-    BoardState  state = BoardState::ONLINE;
+    BoardState  state = BoardState::OFFLINE;
     std::string close_reason;
 
     // heartbeat

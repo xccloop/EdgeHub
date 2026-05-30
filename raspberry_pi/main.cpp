@@ -92,9 +92,12 @@ int main() {
                         }
                     }
                     if (f.type == TYPE_HEARTBEAT) {
-                        ch2->last_heartbeat_ms = get_time_ms();
-                        ch2->heartbeat_miss_count = 0;
+                        if (!ch2->board_id.empty()) {
+                            ch2->last_heartbeat_ms = get_time_ms();
+                            ch2->heartbeat_miss_count = 0;
+                        }
                     }
+                    ch2->msg_count++;  // count frames, not raw bytes
                     router.route(*ch2, f);
                 });
 
@@ -116,6 +119,14 @@ int main() {
 
                 if (ev & EPOLLIN) {
                     bool ok = ch->read_all();
+                    // D1: version incompatibility → close connection
+                    if (ch->parser.fatal()) {
+                        LOG("BOARD REJECT     fd=%d reason=unsupported protocol version",
+                            fd);
+                        ep.del(fd);
+                        conn_mgr.remove(fd);
+                        continue;
+                    }
                     if (!ok) {
                         LOG("BOARD DISCONNECT board=%s fd=%d reason=%s",
                             ch->board_id.empty() ? "(unregistered)" : ch->board_id.c_str(),

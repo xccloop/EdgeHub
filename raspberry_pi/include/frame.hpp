@@ -5,9 +5,10 @@
 #define FRAME_MAGIC_0      0xEB
 #define FRAME_MAGIC_1      0x90
 #define FRAME_VERSION      0x01
-#define FRAME_HEADER_SIZE  8
+#define FRAME_HEADER_SIZE  6     // Magic(2)+Version(1)+Length(2)+Type(1)
+#define FRAME_MIN_SIZE     (FRAME_HEADER_SIZE + 2)  // header + CRC, zero payload
 #define FRAME_MAX_PAYLOAD  4096
-#define FRAME_MAX_SIZE     (FRAME_HEADER_SIZE + FRAME_MAX_PAYLOAD + 2) // +2 CRC
+#define FRAME_MAX_SIZE     (FRAME_HEADER_SIZE + FRAME_MAX_PAYLOAD + 2) // 4104
 
 enum FrameType : uint8_t {
     TYPE_TELEMETRY = 0x01,
@@ -22,11 +23,7 @@ enum ParseState {
     S_GOT_MAGIC,
     S_GOT_VERSION,
     S_GOT_LEN_H,
-    S_GOT_LEN_L,
-    S_GOT_TYPE,
     S_PAYLOAD,
-    S_GOT_CRC,
-    S_DONE,
 };
 
 struct Frame {

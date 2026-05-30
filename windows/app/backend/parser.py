@@ -8,6 +8,11 @@ from .models import Telemetry, Heartbeat, DeviceEvent
 def parse_message(text: str) -> Optional[Union[Telemetry, Heartbeat, DeviceEvent]]:
     """Parse a JSON message from the EdgeHub server.
 
+    Disambiguation:
+      - Messages from the server with "type":"heartbeat" → Heartbeat
+      - Messages from the server with "type":"event" → DeviceEvent
+      - Messages relayed from boards (may have "type":"telemetry" or no type) → Telemetry
+
     Returns a typed model object, or None if the message is unrecognized.
     """
     try:
@@ -17,6 +22,7 @@ def parse_message(text: str) -> Optional[Union[Telemetry, Heartbeat, DeviceEvent
 
     msg_type = data.get("type", "")
 
+    # Server-generated messages have explicit "type" and "board" fields
     if msg_type == "heartbeat":
         board_id = data.get("board", "")
         if not board_id:
@@ -33,11 +39,11 @@ def parse_message(text: str) -> Optional[Union[Telemetry, Heartbeat, DeviceEvent
             detail=data.get("detail", "")
         )
 
-    # Telemetry — these are the original upstream frames from boards.
-    # They may contain "type":"telemetry" or just be raw sensor data dicts.
+    # Telemetry — board-relayed data.
+    # R2: messages without a server-managed "type" (or with "type":"telemetry")
+    # are treated as board telemetry. Check for board_id first.
     board_id = data.get("board_id") or data.get("board", "")
     if board_id:
         return Telemetry(board_id=board_id, raw=data)
 
-    # Fallback: treat unknown JSON with board_id as telemetry
     return None

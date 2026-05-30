@@ -33,9 +33,10 @@ void MessageRouter::handle_telemetry(const BoardChannel &ch, const Frame &f) {
 }
 
 void MessageRouter::handle_heartbeat(const BoardChannel &ch, const Frame &f) {
+    (void)f;
     // Heartbeat frame itself has no board_id — use the channel's registered id.
     if (ch.board_id.empty()) {
-        // Device hasn't sent Telemetry yet — ignore this heartbeat.
+        printf("[router] WARNING: heartbeat from unregistered board, dropping\n");
         return;
     }
 
@@ -58,7 +59,7 @@ void MessageRouter::broadcast_event(const std::string &event,
     } else {
         snprintf(buf, sizeof(buf),
                  "{\"type\":\"event\",\"event\":\"%s\",\"board\":\"%s\",\"detail\":\"%s\"}",
-                 event.c_str(), board_id.c_str(), detail.c_str());
+                 event.c_str(), board_id.c_str(), escape_json(detail).c_str());
     }
     m_ws.broadcast(std::string(buf));
     printf("[router] event: %s board=%s %s\n",

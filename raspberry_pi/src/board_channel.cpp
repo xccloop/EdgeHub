@@ -51,7 +51,6 @@ void BoardChannel::feed(const uint8_t *data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         parser.feed_byte(data[i]);
     }
-    msg_count += len;
 }
 
 void BoardChannel::consume_bytes(size_t n) {

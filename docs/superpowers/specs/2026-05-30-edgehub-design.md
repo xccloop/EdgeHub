@@ -30,21 +30,23 @@ LS2K0300 #2 (Wi-Fi) ──TCP──┤── 树莓派 4B ──WebSocket── 
 | Length | 3 | 2 | 帧总长 = 8 + Payload，大端序 |
 | Type | 5 | 1 | `0x01`=Telemetry, `0x02`=Heartbeat |
 | Payload | 6 | N | 数据体，最大 4096 字节 |
-| CRC16 | 6+N | 2 | CRC-16/Modbus，从 Magic 到 Payload 末尾 |
+| CRC16 | 6+N | 2 | CRC-16/Modbus，**小端序（LSB first）** |
 
-- **CRC-16/Modbus**: 多项式 `0x8005`，初始值 `0xFFFF`，输出不异或
+- **Header = 6 字节**: Magic(2) + Version(1) + Length(2) + Type(1)
+- **Length = Header + Payload + CRC = N + 8**（不含魔术字额外开销，就是 6 + 2 = 8）
+- **CRC-16/Modbus**: 多项式 `0x8005`，初始值 `0xFFFF`，输出不异或。**按 Modbus 标准小端序传输**
 - **Length 大端序发送**，帧间不插入额外延时
-- **Payload 上限**: 4096 字节（帧总长上限 = 8 + 4096 = 4104）
+- **Payload 上限**: 4096 字节（帧总长上限 = 6 + 4096 + 2 = 4104）
 - **Payload 类型**: 当前为 JSON（Type=0x01）。未来二进制数据用独立 Type 值区分
-- **版本不兼容**: 收到不支持的 Version 值 → 直接关闭连接，不尝试解析
+- **版本不兼容**: 收到不支持的 Version 值 → 标记 fatal，调用方关闭连接
 
 ### 帧解析状态机
 
 ```
-IDLE → GOT_0xEB → GOT_MAGIC → GOT_VERSION → GOT_LEN_H → GOT_LEN_L
-                                                              ↓
-DONE ← GOT_CRC ← 收满 Payload ← 已知长度 ← GOT_TYPE ← GOT_LEN (已验证≤4104)
+IDLE → GOT_0xEB → GOT_MAGIC → GOT_VERSION → GOT_LEN_H → S_PAYLOAD → 收满→验CRC→emit
 ```
+
+共 6 个状态（S_GOT_LEN_L、S_GOT_TYPE 已合并入 S_PAYLOAD，S_GOT_CRC/S_DONE 已删除）。
 
 逐字节喂入。关键恢复逻辑：
 

@@ -31,6 +31,7 @@ class MainWindow(FluentWindow):
         self.log_page = LogPage(self._dispatcher)
 
         self._setup_navigation()
+        self._inject_connection_bar()
         self._setup_data_flow()
 
         self.setWindowTitle("EdgeHub Dashboard")
@@ -38,13 +39,6 @@ class MainWindow(FluentWindow):
 
     def _setup_navigation(self):
         """Add pages to the sidebar navigation."""
-
-        # Settings page — bottom position
-        self.addSubInterface(
-            self.settings_page, FI.SETTING, "Settings",
-            NavigationItemPosition.BOTTOM
-        )
-
         self.addSubInterface(
             self.dashboard_page, FI.HOME, "Dashboard"
         )
@@ -54,9 +48,30 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self.log_page, FI.DOCUMENT, "Log"
         )
+        # Settings page — bottom position
+        self.addSubInterface(
+            self.settings_page, FI.SETTING, "Settings",
+            NavigationItemPosition.BOTTOM
+        )
 
-        # Inject connection bar at top of the central widget area
-        # qfluentwidgets FluentWindow has a stack widget; we insert our bar.
+    def _inject_connection_bar(self):
+        """Insert ConnectionBar above the stacked widget in the central layout."""
+        stack = self.stackedWidget
+        layout = self.centralWidget().layout()
+        if layout is None:
+            return
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item and item.widget() == stack:
+                layout.removeWidget(stack)
+                wrapper = QWidget()
+                vbox = QVBoxLayout(wrapper)
+                vbox.setContentsMargins(0, 0, 0, 0)
+                vbox.setSpacing(0)
+                vbox.addWidget(self._bar)
+                vbox.addWidget(stack)
+                layout.insertWidget(i, wrapper, 1)
+                break
 
     def _setup_data_flow(self):
         """Wire WebSocket messages → parser → dispatcher → pages."""
