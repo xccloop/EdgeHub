@@ -1,4 +1,5 @@
-pyserial>=3.5
-rich>=13.0
+# EdgeHub Windows Client Dependencies
 PyQt5>=5.15
+PyQtWebSocket>=0.1
+qfluentwidgets>=1.5
 pyqtgraph>=0.13

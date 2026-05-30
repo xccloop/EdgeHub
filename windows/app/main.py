@@ -1,46 +1,38 @@
-import sys
-import os
+"""EdgeHub Windows Client — entry point."""
 
+import sys
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
+from qfluentwidgets import Theme
 
-from qt_material import apply_stylesheet
-
-from app.ui.main_window import MainWindow
-from app.api.server import init_api
+from .api.ws_client import WsClient
+from .backend.parser import parse_message
+from .backend.dispatcher import DataDispatcher
+from .ui.main_window import MainWindow
+from .ui.styles.theme import apply_theme
 
 
 def main():
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("可交互调车系统")
-    app.setOrganizationName("EpollTuning")
+    app.setApplicationName("EdgeHub")
+    app.setOrganizationName("EdgeHub")
 
-    apply_stylesheet(app, theme='dark_teal.xml', extra={
-        'font_family': 'Microsoft YaHei',
-        'font_size': 12,
-        'density_scale': -1,
-    })
+    apply_theme(Theme.DARK)
 
-    # QSS overrides
-    qss_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ui', 'styles', 'theme.qss')
-    if not os.path.exists(qss_path):
-        qss_path = os.path.join(os.path.dirname(__file__), 'ui', 'styles', 'theme.qss')
-    if getattr(sys, 'frozen', False):
-        qss_path = os.path.join(sys._MEIPASS, 'app', 'ui', 'styles', 'theme.qss')
-    if os.path.exists(qss_path):
-        with open(qss_path, 'r', encoding='utf-8') as f:
-            app.setStyleSheet(app.styleSheet() + '\n' + f.read())
+    # Core pipeline
+    ws_client = WsClient()
+    dispatcher = DataDispatcher()
 
-    window = MainWindow()
+    # Main window
+    window = MainWindow(ws_client, dispatcher, parse_message)
     window.show()
-
-    init_api(window.state, window.tcp_worker)
 
     sys.exit(app.exec_())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
