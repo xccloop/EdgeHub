@@ -41,7 +41,7 @@ void WsServer::ev_handler(mg_connection *c, int ev, void *ev_data) {
     switch (ev) {
     case MG_EV_HTTP_MSG: {
         struct mg_http_message *hm = static_cast<mg_http_message *>(ev_data);
-        if (mg_http_match_uri(hm, "/ws")) {
+        if (hm->uri.len == 3 && memcmp(hm->uri.buf, "/ws", 3) == 0) {
             mg_ws_upgrade(c, hm, nullptr);
         } else {
             mg_http_reply(c, 200, "Content-Type: text/plain\r\n",
@@ -52,7 +52,7 @@ void WsServer::ev_handler(mg_connection *c, int ev, void *ev_data) {
     case MG_EV_WS_OPEN:
         self->on_ws_open(c);
         break;
-    case MG_EV_WS_CLOSE:
+    case MG_EV_CLOSE:
         self->on_ws_close(c);
         break;
     case MG_EV_WS_MSG: {

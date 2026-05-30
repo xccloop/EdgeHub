@@ -21,6 +21,7 @@ void MessageRouter::route(const BoardChannel &ch, const Frame &f) {
 }
 
 void MessageRouter::handle_telemetry(const BoardChannel &ch, const Frame &f) {
+    (void)ch; // unused in Phase 1 — board context not needed for forward
     // Telemetry payload is JSON. Forward directly to PC.
     std::string json(reinterpret_cast<const char *>(f.payload), f.payload_len);
     m_ws.broadcast(json);
