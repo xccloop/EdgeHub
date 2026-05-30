@@ -1,15 +1,9 @@
 #include "board_channel.hpp"
+#include "time_util.hpp"
 #include <unistd.h>
 #include <errno.h>
 #include <cstring>
 #include <cstdio>
-#include <sys/time.h>
-
-static uint64_t get_time_ms() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000 + tv.tv_usec / 1000;
-}
 
 BoardChannel::BoardChannel(int _fd, const std::string &_ip)
     : fd(_fd), ip(_ip), parser([](const Frame &) {})

@@ -48,14 +48,14 @@ std::vector<BoardChannel*> ConnectionManager::check_heartbeats(uint64_t now_ms) 
         auto &ch = pair.second;
         if (ch.state == BoardState::OFFLINE) continue;
 
-        // Direct time comparison: 15s without heartbeat → timeout
-        uint64_t elapsed = (ch.last_heartbeat_ms == 0)
-            ? (now_ms - ch.connect_time_ms)
-            : (now_ms - ch.last_heartbeat_ms);
-        if (elapsed > (BoardChannel::HEARTBEAT_TIMEOUT_MS * BoardChannel::MAX_MISS_COUNT)) {
-            ch.state = BoardState::OFFLINE;
-            ch.close_reason = "heartbeat timeout";
-            timed_out.push_back(&ch);
+        // B1: use is_heartbeat_timeout() per spec — 5s threshold, 3 consecutive strikes
+        if (ch.is_heartbeat_timeout(now_ms)) {
+            ch.heartbeat_miss_count++;
+            if (ch.heartbeat_miss_count >= BoardChannel::MAX_MISS_COUNT) {
+                ch.state = BoardState::OFFLINE;
+                ch.close_reason = "heartbeat timeout";
+                timed_out.push_back(&ch);
+            }
         }
     }
     return timed_out;

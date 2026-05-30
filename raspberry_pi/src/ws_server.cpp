@@ -4,10 +4,7 @@
 #include <cstring>
 #include <cstdio>
 
-static WsServer *g_instance = nullptr;
-
 WsServer::WsServer(int port) : m_port(port) {
-    g_instance = this;
     m_mgr = new mg_mgr();
     mg_mgr_init(m_mgr);
 
@@ -23,7 +20,6 @@ WsServer::~WsServer() {
         mg_mgr_free(m_mgr);
         delete m_mgr;
     }
-    g_instance = nullptr;
 }
 
 void WsServer::poll(int timeout_ms) {

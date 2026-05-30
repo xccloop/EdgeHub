@@ -1,6 +1,8 @@
 """Device card widget for the dashboard grid."""
 
+import time
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout
+from PyQt5.QtCore import QTimer
 from qfluentwidgets import CardWidget, SubtitleLabel, BodyLabel, CaptionLabel
 from .status_indicator import StatusIndicator
 
@@ -21,10 +23,16 @@ class DeviceCard(CardWidget):
     def __init__(self, board_id="", parent=None):
         super().__init__(parent)
         self.board_id = board_id
+        self._last_seen_ms = 0
         self.setMinimumSize(220, 150)
         self.setMaximumWidth(300)
 
         self._build_ui()
+
+        # B2: periodic refresh of "Last seen" relative time
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._update_last_seen)
+        self._refresh_timer.start(1000)  # every second
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -64,6 +72,21 @@ class DeviceCard(CardWidget):
         self.telemetry_count.setText(f"Telemetry: {device.telemetry_count}")
         self.heartbeat_count.setText(f"Heartbeat: {device.heartbeat_count}")
 
-        if device.last_seen_ms > 0:
-            sec = device.last_seen_ms // 1000
-            self.last_seen.setText(f"Last seen: {sec}s ago")
+        self._last_seen_ms = device.last_seen_ms
+        self._update_last_seen()
+
+    def _update_last_seen(self):
+        """B2: compute relative time from server absolute timestamp."""
+        if self._last_seen_ms <= 0:
+            self.last_seen.setText("Last seen: --")
+            return
+        now_ms = int(time.time() * 1000)
+        diff_s = (now_ms - self._last_seen_ms) // 1000
+        if diff_s < 0:
+            self.last_seen.setText("Last seen: just now")
+        elif diff_s < 60:
+            self.last_seen.setText(f"Last seen: {diff_s}s ago")
+        elif diff_s < 3600:
+            self.last_seen.setText(f"Last seen: {diff_s // 60}m ago")
+        else:
+            self.last_seen.setText(f"Last seen: {diff_s // 3600}h ago")

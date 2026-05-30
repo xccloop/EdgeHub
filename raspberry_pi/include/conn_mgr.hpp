@@ -21,6 +21,13 @@ public:
 
     size_t count() const { return m_channels.size(); }
 
+    // D4: list all channels
+    std::vector<BoardChannel*> list() {
+        std::vector<BoardChannel*> result;
+        for (auto &pair : m_channels) result.push_back(&pair.second);
+        return result;
+    }
+
 private:
     std::unordered_map<int, BoardChannel> m_channels;
 };

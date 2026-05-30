@@ -5,22 +5,16 @@
 #include "include/ws_server.hpp"
 #include "include/msg_router.hpp"
 #include "include/frame.hpp"
+#include "include/time_util.hpp"
 
 #include <cstdio>
 #include <cstring>
 #include <csignal>
-#include <sys/time.h>
 
 static volatile bool g_running = true;
 
 static void sig_handler(int) {
     g_running = false;
-}
-
-static uint64_t get_time_ms() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000 + tv.tv_usec / 1000;
 }
 
 #define LOG(fmt, ...) do { \
@@ -126,6 +120,11 @@ int main() {
                     if (ch->parser.fatal()) {
                         LOG("BOARD REJECT     fd=%d reason=unsupported protocol version",
                             fd);
+                        // B3: broadcast offline if board was registered
+                        if (!ch->board_id.empty()) {
+                            router.broadcast_event("offline", ch->board_id,
+                                                    "unsupported protocol version");
+                        }
                         if (!ep.del(fd)) LOG("BOARD REJECT     ep.del(%d) failed", fd);
                         conn_mgr.remove(fd);
                         continue;
