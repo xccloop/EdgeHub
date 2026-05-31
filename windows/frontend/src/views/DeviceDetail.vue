@@ -39,18 +39,25 @@
       </div>
     </div>
 
-    <el-empty v-else description="Click a device card on Dashboard to view waveforms" />
+    <el-empty v-else description="Enable Mock Wave in Settings, or click a device in Dashboard" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { store, groupFields, WavePoint } from '@/api'
 import WaveChart from '@/components/WaveChart.vue'
 
 const route = useRoute()
-const activeBoard = computed(() => route.query.board as string || '')
+const router = useRouter()
+// Auto-select: use query param, or first available board from store
+const activeBoard = computed(() => {
+  const q = route.query.board as string
+  if (q) return q
+  const ids = Object.keys(store.devices)
+  return ids.length > 0 ? ids[0] : ''
+})
 const frozen = ref(false)
 const _chartRefs: Record<string, any> = {}
 const COLORS = ['#4a6cf7','#f97316','#10b981','#ef4444','#8b5cf6','#f59e0b','#ec4899','#06b6d4']
