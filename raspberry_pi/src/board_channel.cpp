@@ -25,8 +25,13 @@ bool BoardChannel::read_all() {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break; // all available data read
             }
+            if (errno == EINTR) {
+                continue; // interrupted by signal, retry
+            }
+            // ECONNRESET / other errors → fatal
             state = BoardState::OFFLINE;
             close_reason = strerror(errno);
+            printf("[board] read error fd=%d: %s\n", fd, close_reason.c_str());
             return false;
         }
     }
