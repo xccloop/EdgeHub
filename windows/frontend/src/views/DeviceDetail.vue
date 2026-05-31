@@ -67,9 +67,10 @@ const groups = computed(() => {
   return groupFields(active)
 })
 
+// B4: hash field name → consistent color regardless of visibility/grouping
 const fieldColor = (f: string) => {
-  const idx = allFields.value.indexOf(f)
-  return COLORS[idx % COLORS.length]
+  let h = 0; for (let i = 0; i < f.length; i++) h = ((h << 5) - h + f.charCodeAt(i)) | 0
+  return COLORS[Math.abs(h) % COLORS.length]
 }
 
 function toggleField(f: string) {

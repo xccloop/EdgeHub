@@ -12,7 +12,6 @@
     "echarts": "^6.1.0",
     "element-plus": "^2.8.0",
     "vue": "^3.5.0",
-    "vue-echarts": "^8.0.1",
     "vue-router": "^4.4.0"
   },
   "devDependencies": {

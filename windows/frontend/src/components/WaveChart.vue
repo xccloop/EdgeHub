@@ -11,7 +11,7 @@
 </template>
 
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import type { WavePoint } from '@/api'
 
@@ -44,11 +44,14 @@ function scrollToEnd() {
 onMounted(() => {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
+  const hasRightAxis = props.fields.some((_, i) => (props.yAxisIndex ?? 0) > 0 || i > 0)
   chart.setOption({
     animation: false,
-    grid: { top: 8, right: 16, bottom: 24, left: 48 },
+    grid: { top: 36, right: hasRightAxis ? 52 : 20, bottom: 28, left: 52 },
     xAxis: { type: 'time', min: 'dataMin', max: 'dataMax' },
-    yAxis: { type: 'value' },
+    yAxis: hasRightAxis
+      ? [{ type: 'value' }, { type: 'value' }]
+      : { type: 'value' },
     tooltip: { trigger: 'axis' },
     dataZoom: [{ type: 'inside' }],
     series: buildSeries(),

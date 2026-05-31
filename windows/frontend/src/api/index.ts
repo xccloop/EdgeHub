@@ -19,19 +19,30 @@ export const DEFAULT_BLACKLIST = [
   /^sequence$/, /^seq$/, /^packet_count$/, /^uptime_ms$/,
   /^timestamp$/, /^ts$/, /^board_id$/, /^type$/,
 ]
-export const DEFAULT_WHITELIST: RegExp[] = []  // empty = all pass; add patterns to restrict
+function loadWhitelist(): RegExp[] {
+  try {
+    const raw = localStorage.getItem('edgehub_whitelist')
+    if (raw) return JSON.parse(raw).map((s: string) => new RegExp(s))
+  } catch {}
+  return []
+}
+
+// Whitelist: empty = all pass. User-configurable via Settings UI.
+export let WHITELIST: RegExp[] = []
+
+export function reloadWhitelist() { WHITELIST = loadWhitelist() }
+reloadWhitelist()  // initial load
 
 // ── Global store ─────────────────────────────────────
 
 export const store = reactive({
   serverConnected: false,
+  mockActive: false,  // B3: SSE source state survives navigation
   devices: {} as Record<string, DeviceInfo>,
   logPaused: false,
   perBoard: {} as Record<string, LogLine[]>,
   pending: [] as LogLine[],
-  // waveforms[boardId][fieldPath] = WavePoint[]
   waveforms: {} as Record<string, Record<string, WavePoint[]>>,
-  // visibleFields[boardId] = Set of field paths currently displayed
   visibleFields: {} as Record<string, Set<string>>,
 })
 
@@ -43,7 +54,7 @@ export function flattenFields(obj: Record<string, any>, prefix = ''): Record<str
     if (typeof val === 'number' && isFinite(val)) {
       const path = prefix + key
       if (DEFAULT_BLACKLIST.some(r => r.test(path))) continue
-      if (DEFAULT_WHITELIST.length > 0 && !DEFAULT_WHITELIST.some(r => r.test(path))) continue
+      if (WHITELIST.length > 0 && !WHITELIST.some(r => r.test(path))) continue
       result[path] = val
     } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
       Object.assign(result, flattenFields(val, prefix + key + '.'))
@@ -120,6 +131,7 @@ let _mockEs: EventSource | null = null
 export function startEventSource(mock = false) {
   if (_es) { _es.close(); _es = null }
   if (_mockEs) { _mockEs.close(); _mockEs = null }
+  store.mockActive = mock
   const url = mock ? `${BASE}/api/mock-wave` : `${BASE}/api/stream`
   const es = new EventSource(url)
   if (mock) _mockEs = es; else _es = es
@@ -128,6 +140,7 @@ export function startEventSource(mock = false) {
     const raw = JSON.parse(e.data)
     const d = ensureDevice(raw.board_id)
     d.telemetry_count++; d.msg_count++
+    d.last_seen_ms = Date.now()  // B5: telemetry receipt == last seen
     const fields = flattenFields(raw.raw)
     pushWaveform(raw.board_id, fields)
     const entry: LogLine = { board_id: raw.board_id, type: 'telemetry', json: JSON.stringify(raw.raw) }
@@ -149,7 +162,7 @@ export function startEventSource(mock = false) {
       store.pending.push({ board_id: raw.board_id, type: raw.event, json: JSON.stringify(raw) })
     }
   })
-  es.onerror = () => {}
+  es.onerror = () => { store.serverConnected = false }  // Q4: signal connection loss
 }
 
 // ── Per-board pending consumer ───────────────────────

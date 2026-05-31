@@ -35,11 +35,22 @@
         <el-button size="small" text @click="resetGroups">Reset to Default</el-button>
       </div>
     </el-card>
+
+    <!-- D1: Whitelist -->
+    <el-card class="settings-card">
+      <template #header>Field Whitelist</template>
+      <p class="card-desc">Only plot fields matching these regexes (empty = all pass). Example: <code>["imu.*","speed","kp|ki|kd"]</code></p>
+      <el-input v-model="whitelistJson" type="textarea" :rows="3" placeholder='["imu.*","speed"]' size="small" style="font-family:monospace;font-size:12px;" />
+      <div class="btn-row">
+        <el-button size="small" @click="applyWhitelist">Apply</el-button>
+        <el-button size="small" text @click="resetWhitelist">Clear</el-button>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { store, connectServer, startEventSource } from '@/api'
 
@@ -47,16 +58,17 @@ const host = ref('192.168.1.112')
 const port = ref('9528')
 const connecting = ref(false)
 const statusText = ref('Disconnected')
-const mockActive = ref(false)
+const mockActive = computed(() => store.mockActive)  // B3: derived from store, survives nav
 
 const groupJson = ref(localStorage.getItem('edgehub_field_groups') || '')
+const whitelistJson = ref(localStorage.getItem('edgehub_whitelist') || '')
 
 async function toggle() {
   if (store.serverConnected) { store.serverConnected = false; statusText.value = 'Disconnected'; return }
   connecting.value = true; statusText.value = 'Connecting...'
   const r = await connectServer(host.value, parseInt(port.value))
   connecting.value = false
-  if (r.success) { store.serverConnected = true; statusText.value = `Connected to ${host.value}:${port.value}`; startEventSource() }
+  if (r.success) { store.serverConnected = true; store.mockActive = false; statusText.value = `Connected to ${host.value}:${port.value}`; startEventSource(false) }
   else { statusText.value = r.error || 'Connection failed' }
 }
 
@@ -82,6 +94,22 @@ function resetGroups() {
   localStorage.removeItem('edgehub_field_groups')
   groupJson.value = ''
   ElMessage.success('Reset to defaults')
+}
+
+function applyWhitelist() {
+  try {
+    const parsed = JSON.parse(whitelistJson.value)
+    if (!Array.isArray(parsed)) throw new Error('Must be a JSON array of regex strings')
+    for (const s of parsed) { if (typeof s !== 'string') throw new Error('All items must be strings'); new RegExp(s) }
+    localStorage.setItem('edgehub_whitelist', whitelistJson.value)
+    ElMessage.success('Whitelist applied (reconnect or toggle mock to reload)')
+  } catch (e: any) { ElMessage.error(e.message) }
+}
+
+function resetWhitelist() {
+  localStorage.removeItem('edgehub_whitelist')
+  whitelistJson.value = ''
+  ElMessage.success('Whitelist cleared')
 }
 </script>
 
