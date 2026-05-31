@@ -50,7 +50,7 @@ onMounted(() => {
   chart.setOption({
     animation: false,
     backgroundColor: '#080812',
-    grid: { top: 8, right: 20, bottom: 24, left: 48 },
+    grid: { top: 8, right: 20, bottom: 32, left: 48 },
     xAxis: { type: 'time',
              axisLine: { lineStyle: { color: '#1a1a30' } },
              axisLabel: { color: '#8899aa', fontSize: 11, fontFamily: 'Quicksand, sans-serif' } },
@@ -61,7 +61,7 @@ onMounted(() => {
     tooltip: { trigger: 'axis' },
     dataZoom: [
       { type: 'inside', xAxisIndex: 0 },
-      { type: 'slider', xAxisIndex: 0, height: 16, bottom: 2,
+      { type: 'slider', xAxisIndex: 0, height: 16, bottom: 0,
         borderColor: '#1a1a30', backgroundColor: '#0a0a18',
         dataBackground: { lineStyle: { color: '#00ff88' }, areaStyle: { color: 'rgba(0,255,136,0.05)' } },
         selectedDataBackground: { lineStyle: { color: '#fff' } } },
