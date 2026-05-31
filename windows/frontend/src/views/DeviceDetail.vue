@@ -93,16 +93,22 @@ function clearWaveforms() {
   }
 }
 
-// push new data points to charts
+// push new data points to charts — count total points for reliable reactivity
+const _totalPoints = computed(() => {
+  const data = boardData.value
+  let n = 0
+  for (const k of Object.keys(data)) n += data[k].length
+  return n
+})
+
 let _lastTs: Record<string, number> = {}
-// Q2: clear timestamp cache when switching boards
 watch(activeBoard, () => { _lastTs = {} })
-watch(() => boardData.value, () => {
+
+watch(_totalPoints, () => {
   const data = boardData.value
   for (const [groupTitle, fields] of Object.entries(groups.value)) {
     const chart = _chartRefs[groupTitle]
     if (!chart) continue
-    // Q3: per-field timestamps
     const updates: Record<string, { ts: number; val: number }> = {}
     let hasNew = false
     for (const f of fields) {
@@ -118,7 +124,7 @@ watch(() => boardData.value, () => {
     }
     if (hasNew) chart.append(updates)
   }
-}, { deep: true })
+})
 
 onUnmounted(() => { for (const k of Object.keys(_chartRefs)) _chartRefs[k] = null })
 </script>
