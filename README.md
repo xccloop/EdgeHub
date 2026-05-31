@@ -1,86 +1,16 @@
-# EdgeHub — 三层边缘服务器架构
+# EdgeHub — 三层边缘计算网关
 
-基于 **epoll** 事件驱动的实时遥测汇聚平台。树莓派作为边缘中枢，多块 LS2K0300 板卡通过 Wi-Fi 上报传感器数据，Windows PC 仪表板实时展示。
-
-## 架构图
+树莓派作为边缘服务器，通过 TCP 接收板卡遥测数据，提供 SQLite 持久存储、下行命令路由和 HTTP REST API。Windows 上位机用于实时监控和历史数据分析。
 
 ```
-┌───────────────────────────┐  ┌───────────────────────────┐
-│      LS2K0300 #1          │  │      LS2K0300 #2          │
-│  ┌─────────────────────┐  │  │  ┌─────────────────────┐  │
-│  │ 传感器采集 (IMU/PID) │  │  │  │ 传感器采集 (IMU/PID) │  │
-│  │ 二进制帧封装         │  │  │  │ 二进制帧封装         │  │
-│  │ TCP Client :9527    │  │  │  │ TCP Client :9527    │  │
-│  └─────────┬───────────┘  │  │  └─────────┬───────────┘  │
-└────────────┼──────────────┘  └────────────┼──────────────┘
-             │ Wi-Fi                         │ Wi-Fi
-             │ 二进制帧                       │ 二进制帧
-             │ (CRC-16/Modbus)               │ (CRC-16/Modbus)
-             ▼                               ▼
-┌────────────────────────────────────────────────────────────┐
-│                    树莓派 4B (Edge Server)                  │
-│                                                            │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │                   epoll 事件循环 (ET 模式)            │  │
-│  │                                                      │  │
-│  │  ┌──────────┐  ┌──────────────┐  ┌──────────────┐  │  │
-│  │  │Listen fd │  │ Board fd #1  │  │ Board fd #2  │  │  │
-│  │  │ :9527    │  │ (非阻塞读)   │  │ (非阻塞读)   │  │  │
-│  │  └────┬─────┘  └──────┬───────┘  └──────┬───────┘  │  │
-│  │       │               │                 │           │  │
-│  │       ▼               ▼                 ▼           │  │
-│  │  ┌──────────────────────────────────────────────┐   │  │
-│  │  │            ConnectionManager                  │   │  │
-│  │  │  map<fd, BoardChannel>                        │   │  │
-│  │  │  · ONLINE/OFFLINE 状态                        │   │  │
-│  │  │  · 心跳超时检测 (15s)                         │   │  │
-│  │  └──────────────────┬───────────────────────────┘   │  │
-│  │                     │                               │  │
-│  │                     ▼                               │  │
-│  │  ┌──────────────────────────────────────────────┐   │  │
-│  │  │              FrameParser                      │   │  │
-│  │  │  · 6 状态滑动窗口状态机                        │   │  │
-│  │  │  · CRC 失败 → 丢弃首字节重新搜索               │   │  │
-│  │  │  · Length 越界 → 回退 IDLE                    │   │  │
-│  │  └──────────────────┬───────────────────────────┘   │  │
-│  │                     │                               │  │
-│  │                     ▼                               │  │
-│  │  ┌──────────────────────────────────────────────┐   │  │
-│  │  │            MessageRouter                      │   │  │
-│  │  │  Telemetry → JSON 直转 → WebSocket 广播       │   │  │
-│  │  │  Heartbeat → 生成 JSON → WebSocket 广播       │   │  │
-│  │  └──────────────────┬───────────────────────────┘   │  │
-│  │                     │                               │  │
-│  │                     ▼                               │  │
-│  │  ┌──────────────────────────────────────────────┐   │  │
-│  │  │        WsServer (Mongoose)  :9528/ws         │   │  │
-│  │  │  · MG_SEND_MAX_QUEUE=64                       │   │  │
-│  │  │  · 广播到所有 PC 客户端                        │   │  │
-│  │  └──────────────────┬───────────────────────────┘   │  │
-│  └────────────────────┼───────────────────────────────┘  │
-└───────────────────────┼──────────────────────────────────┘
-                        │ JSON / WebSocket
-                        │ (指数退避断线重连)
-                        ▼
-┌────────────────────────────────────────────────────────────┐
-│                    Windows PC (PyQt5)                       │
-│                                                            │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌──────────┐ │
-│  │ WsClient │→│  Parser  │→│Dispatcher │→│  Pages   │ │
-│  │          │  │ JSON→Model│ │ Pub/Sub   │  │          │ │
-│  └──────────┘  └──────────┘  └───────────┘  │Dashboard │ │
-│                                              │Log       │ │
-│                                              │Settings  │ │
-│                                              └──────────┘ │
-└────────────────────────────────────────────────────────────┘
+Board ──TCP(0xEB90)──▶ Pi (epoll + SQLite + 命令管理 + HTTP API)
+                            │
+                            ├──WS──▶ Windows 上位机 (实时遥测 SSE)
+                            │
+                            └──HTTP──▶ Windows / curl / Grafana (查询/命令/导出)
 ```
 
-## 数据流
-
-```
-上行: LS2K0300 ──TCP 二进制帧──▶ 树莓派(epoll+解析) ──WS──▶ Windows(FastAPI+SSE) ──▶ Vue 3 仪表板
-下行: (Phase 3)
-```
+---
 
 ## 技术栈
 
@@ -88,95 +18,49 @@
 
 | 层 | 技术 | 说明 |
 |---|------|------|
-| I/O 复用 | **Linux epoll** (EPOLLET 边沿触发) | O(1) 事件分发，零阻塞 |
-| 网络 | POSIX socket (TCP) | `accept4(SOCK_NONBLOCK\|SOCK_CLOEXEC)` |
-| 帧协议 | **自定义二进制帧** | Magic+Version+Length+Type+CRC-16/Modbus |
-| WebSocket | **Mongoose** (单头文件库) | HTTP upgrade `/ws`, 广播 |
-| 编译 | CMake, g++ | C++11, ARM Cortex-A72 (`-mcpu=cortex-a72`) |
-| 目标 | Raspberry Pi 4B (2GB) | ARM Linux |
+| I/O | Linux epoll (ET) | 非阻塞 TCP，EPOLLOUT 发送队列 |
+| 帧协议 | 自定义二进制帧 | 0xEB90 Magic + CRC-16/Modbus |
+| 存储 | SQLite 3 (WAL) | 环缓冲批量写入，预编译语句，双策略清理 |
+| 命令管理 | 异步 seq + WS 广播 | 超时检测，ACK 匹配，启动恢复 |
+| HTTP | Mongoose | REST API + CORS + 限流 + Prometheus |
+| WebSocket | Mongoose | 实时遥测推送 + 命令结果通知 |
 
 ### Windows 端 (Python 3 + Vue 3)
 
 | 层 | 技术 | 说明 |
 |---|------|------|
-| 桌面壳 | **pywebview** | WebView 嵌入，原生窗口 |
-| 后端 | **FastAPI** + **uvicorn** | HTTP API + SSE 实时推送 |
-| WebSocket 客户端 | **websocket-client** | 连树莓派 WS 9528，指数退避重连 |
-| 前端框架 | **Vue 3** + **Vite** + **TypeScript** | SPA，hash 路由 |
-| UI 组件库 | **Element Plus** | 侧边栏导航，卡片，表单 |
-| 实时图表 | **ECharts 6** | 实时波形，appendData 增量渲染 |
-| 数据模型 | Python `dataclass` + Vue `reactive` | Telemetry, Heartbeat, DeviceEvent |
-| 打包 | PyInstaller | `--onefile --windowed` |
+| 桌面壳 | pywebview | 原生窗口嵌入 |
+| 后端 | FastAPI + uvicorn | HTTP 代理到 Pi + SSE 推送 |
+| 前端 | Vue 3 + Vite + TypeScript | SPA 仪表板 |
+| UI | Element Plus | 侧边栏、卡片、表单 |
+| 图表 | ECharts 6 | 实时波形、历史回放 |
 
-## 二进制帧协议
+---
 
-```
-┌─────────┬──────────┬──────────┬──────────┬──────────────┬────────┐
-│  Magic  │ Version  │  Length  │   Type   │   Payload    │  CRC16 │
-│ 2 bytes │ 1 byte   │ 2 bytes  │ 1 byte   │   N bytes    │ 2 bytes│
-│ 0xEB90  │  0x01    │ N+8      │          │              │ LSB    │
-└─────────┴──────────┴──────────┴──────────┴──────────────┴────────┘
-  Big-endian: Length          Little-endian: CRC
-```
+## Pi HTTP API
 
-| Type | 值 | 说明 |
-|------|---|------|
-| Telemetry | 0x01 | 传感器数据 (JSON Payload) |
-| Heartbeat | 0x02 | 保活心跳 (无 Payload 或 JSON) |
-| Cmd | 0x03 | 下行命令 (Phase 2) |
-| Ack | 0x10 | 命令响应 (Phase 2) |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/health` | 健康检查 |
+| GET | `/api/status` | 运行指标 |
+| GET | `/api/metrics` | Prometheus 格式 |
+| GET | `/api/boards` | 在线设备列表 |
+| POST | `/api/command` | 下发命令（异步返回 seq） |
+| GET | `/api/command/{seq}` | 查询命令状态 |
+| GET | `/api/history/{board_id}` | 历史遥测 |
+| GET | `/api/export/{board_id}` | CSV 导出 |
 
-- CRC-16/Modbus: 多项式 `0x8005`, 初始 `0xFFFF`
-- Payload 上限: 4096 字节
-- 帧总长上限: 4104 字节
-- 版本不兼容: 标记 fatal → 关闭连接
-
-## 项目结构
-
-```
-Epoll/
-├── raspberry_pi/              # 树莓派边缘服务器 (C++) — 19 个文件
-│   ├── CMakeLists.txt
-│   ├── build.sh               # 自动下载 mongoose + 编译
-│   ├── main.cpp               # epoll 主循环
-│   ├── include/               # 8 个头文件
-│   │   ├── epoll.hpp          #   epoll C++ 封装
-│   │   ├── frame.hpp          #   帧协议常量/结构体
-│   │   ├── frame_parser.hpp   #   滑动窗口帧解析状态机
-│   │   ├── board_channel.hpp  #   单板通道 (心跳/状态)
-│   │   ├── conn_mgr.hpp       #   多板连接管理器
-│   │   ├── tcp_acceptor.hpp   #   TCP 监听
-│   │   ├── ws_server.hpp      #   Mongoose WebSocket
-│   │   ├── msg_router.hpp     #   帧→JSON 路由
-│   │   └── time_util.hpp      #   ms 时间工具
-│   └── src/                   # 9 个实现文件
-│
-├── windows/                   # Windows 端 (Python + Vue 3) — ~50 个文件
-│   ├── requirements.txt       # Python 依赖
-│   ├── build.py               # PyInstaller 打包
-│   ├── tools/simulate_board.py  # 板卡模拟器
-│   ├── app/
-│   │   ├── main.py            # FastAPI + pywebview 入口
-│   │   ├── api/ws_client.py   # WebSocket 客户端
-│   │   └── backend/           # models, parser, dispatcher
-│   └── frontend/              # Vue 3 + Vite SPA
-│       ├── package.json
-│       ├── src/
-│       │   ├── api/index.ts   # 全局 store + SSE + 波形管理
-│       │   ├── components/    # AppSidebar, WaveChart
-│       │   └── views/         # Dashboard, DeviceDetail, DataStream, Settings
-│
-└── docs/
-    ├── superpowers/specs/     # 设计文档
-    └── review/                # 四轮代码审查报告
-```
+---
 
 ## 端口
 
-| 端口 | 协议 | 方向 | 说明 |
-|------|------|------|------|
-| 9527 | TCP | LS2K0300 → 树莓派 | 二进制帧协议 |
-| 9528 | WebSocket | 树莓派 → Windows PC | JSON / 双向 |
+| 端口 | 协议 | 说明 |
+|------|------|------|
+| 9527 | TCP | 板卡→Pi 二进制帧 |
+| 9528 | HTTP+WS | Pi REST API + WebSocket |
+| 9529 | HTTP | Windows 本地 FastAPI |
+
+---
 
 ## 快速开始
 
@@ -184,9 +68,11 @@ Epoll/
 
 ```bash
 cd raspberry_pi
-chmod +x build.sh
-./build.sh          # 自动下载 mongoose，cmake 编译
-./build/edgehub     # 启动边缘服务器
+mkdir -p third_party/mongoose
+# 下载 mongoose.h/c 到 third_party/mongoose/
+mkdir build && cd build
+cmake .. && make -j4
+./edgehub
 ```
 
 ### Windows
@@ -195,36 +81,64 @@ chmod +x build.sh
 cd windows
 pip install -r requirements.txt
 python -m app.main
+# 浏览器打开 http://127.0.0.1:9529 → Settings → 连接 Pi
 ```
 
 ### 模拟测试
 
 ```bash
-# 模拟 LS2K0300 板卡发送数据
-cd windows
-D:\ANACONDA\envs\EdgeHub\python.exe tools\simulate_board.py 192.168.1.112 sim_01
+# 模拟板卡发送数据
+python tools/simulate_board.py 192.168.1.112 sim_01
 ```
 
-### 本地 Mock 波形（无需树莓派）
-
-1. 启动 EdgeHub 仪表板
-2. Settings → 打开 **Mock Wave** 开关
-3. 切到 **Device Detail** 页面
-4. 自动显示 20Hz 正弦波示波器 (暗底霓虹线, ECharts 实时渲染)
-
-### 运行测试
+### 命令行操作 Pi
 
 ```bash
-cd windows
-D:\ANACONDA\envs\EdgeHub\python.exe -m pytest tools/test_core.py -v
+curl pi:9528/api/status
+curl -X POST pi:9528/api/command -H "Content-Type: application/json" -d '{"board_id":"sim_01","cmd":"set speed 500"}'
 ```
 
-28 个测试覆盖：CRC-16/Modbus 帧协议、JSON 解析器、字段展开、分组规则
+---
+
+## 项目结构
+
+```
+Epoll/
+├── raspberry_pi/              # Pi 边缘服务器 (C++) 28 文件
+│   ├── CMakeLists.txt
+│   ├── main.cpp               # epoll 主循环
+│   ├── include/               # 12 个头文件
+│   │   ├── storage.hpp        #   SQLite 存储层
+│   │   ├── cmd_mgr.hpp        #   异步命令管理
+│   │   ├── rate_limiter.hpp   #   Token bucket 限流
+│   │   ├── ws_server.hpp      #   HTTP/WS 服务器
+│   │   ├── msg_router.hpp     #   帧路由 + 存储转发
+│   │   ├── board_channel.hpp  #   单板通道 (tx_queue)
+│   │   └── ...                #   epoll, frame, conn_mgr 等
+│   └── src/                   # 12 个实现文件
+│
+├── windows/                   # Windows 上位机
+│   ├── requirements.txt
+│   ├── app/main.py            # FastAPI + pywebview
+│   ├── tools/simulate_board.py
+│   └── frontend/              # Vue 3 SPA
+│       └── src/
+│           ├── api/index.ts   # 全局 store + SSE
+│           ├── components/    # WaveChart, CmdTerminal
+│           └── views/         # Dashboard, DeviceDetail, Settings
+│
+└── docs/
+    ├── superpowers/specs/     # 设计文档
+    └── review/                # 代码审查报告
+```
+
+---
 
 ## Phase 计划
 
 | Phase | 内容 | 状态 |
 |-------|------|:--:|
-| Phase 1 | epoll 多路复用 + 二进制帧 + WebSocket 上行 + 仪表板 | ✅ |
-| Phase 2 | ECharts 示波器波形 + Freeze + 字段树 + Mock Wave + 白名单/分组 | ✅ |
-| Phase 3 | SQLite 历史存储 + 下行命令 + 波形导出 + TLS | 🔲 |
+| Phase 1 | epoll + 二进制帧 + WebSocket 上行 + 仪表板 | ✅ |
+| Phase 2 | ECharts 示波器 + Freeze + 字段树 + Mock Wave | ✅ |
+| Phase 3 | SQLite 迁 Pi + HTTP API + 异步命令 + Prometheus | ✅ |
+| Phase 4 | 自动控制规则引擎 + Pi Web Dashboard | 🔲 |
