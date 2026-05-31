@@ -39,6 +39,25 @@
       </div>
     </div>
 
+    <!-- Phase 3: History panel -->
+    <div class="history-bar" v-if="activeBoard">
+      <span class="hist-label">History</span>
+      <input type="datetime-local" v-model="histFrom" class="hist-input" />
+      <span class="hist-sep">—</span>
+      <input type="datetime-local" v-model="histTo" class="hist-input" />
+      <el-button size="small" @click="loadHistory" :loading="histLoading">Load</el-button>
+      <el-button size="small" text @click="exportCsv">Export CSV</el-button>
+      <span class="hist-info" v-if="histCount > 0">{{ histCount }} pts</span>
+    </div>
+
+    <!-- Phase 3: Command Terminal -->
+    <CmdTerminal
+      v-if="activeBoard"
+      :boardId="activeBoard"
+      ref="cmdRef"
+      @sendCommand="onSendCommand"
+    />
+
     <el-empty v-else description="Enable Mock Wave in Settings, or click a device in Dashboard" />
   </div>
 </template>
@@ -48,6 +67,7 @@ import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { store, groupFields, WavePoint } from '@/api'
 import WaveChart from '@/components/WaveChart.vue'
+import CmdTerminal from '@/components/CmdTerminal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -99,9 +119,72 @@ function clearWaveforms() {
   }
 }
 
-// WaveChart handles its own circular-buffer rendering loop (50ms / 20fps).
-// DeviceDetail just passes reactive props; charts read from store directly.
+// ── Phase 3: History ──────────────────────────────────
+const histFrom = ref('')
+const histTo = ref('')
+const histLoading = ref(false)
+const histCount = ref(0)
 
+async function loadHistory() {
+  if (!activeBoard.value || !histFrom.value || !histTo.value) return
+  histLoading.value = true
+  const from = new Date(histFrom.value).getTime()
+  const to = new Date(histTo.value).getTime()
+  const r = await fetch(`/api/history/${activeBoard.value}?from_=${from}&to=${to}`)
+  const data = await r.json()
+  histCount.value = data.count
+  // inject into store for chart rendering
+  if (!store.waveforms[activeBoard.value]) store.waveforms[activeBoard.value] = {}
+  for (const pt of data.points) {
+    const fields = flattenFieldsLocal(pt.raw)
+    for (const [path, val] of Object.entries(fields)) {
+      if (!store.waveforms[activeBoard.value][path]) store.waveforms[activeBoard.value][path] = []
+      store.waveforms[activeBoard.value][path].push({ ts: pt.ts, val } as WavePoint)
+    }
+  }
+  histLoading.value = false
+}
+
+function flattenFieldsLocal(obj: Record<string, any>, prefix = ''): Record<string, number> {
+  const result: Record<string, number> = {}
+  for (const [key, val] of Object.entries(obj)) {
+    if (typeof val === 'number' && isFinite(val)) result[prefix + key] = val
+    else if (typeof val === 'object' && val !== null && !Array.isArray(val))
+      Object.assign(result, flattenFieldsLocal(val, prefix + key + '.'))
+  }
+  return result
+}
+
+function exportCsv() {
+  if (!activeBoard.value || !histFrom.value || !histTo.value) return
+  const from = new Date(histFrom.value).getTime()
+  const to = new Date(histTo.value).getTime()
+  window.open(`/api/export/${activeBoard.value}?from_=${from}&to=${to}`, '_blank')
+}
+
+// ── Phase 3: Command terminal ─────────────────────────
+const cmdRef = ref<InstanceType<typeof CmdTerminal>>()
+
+async function onSendCommand(cmd: string) {
+  if (!activeBoard.value) return
+  try {
+    const r = await fetch('/api/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board_id: activeBoard.value, cmd }),
+    })
+    const data = await r.json()
+    if (data.success) {
+      cmdRef.value?.pushResponse('recv', data.response || 'ok')
+    } else {
+      cmdRef.value?.pushResponse('error', data.error || 'failed')
+    }
+  } catch {
+    cmdRef.value?.pushResponse('error', 'Network error')
+  }
+}
+
+// WaveChart handles its own rendering loop.
 onUnmounted(() => { for (const k of Object.keys(_chartRefs)) _chartRefs[k] = null })
 </script>
 
@@ -131,4 +214,10 @@ onUnmounted(() => { for (const k of Object.keys(_chartRefs)) _chartRefs[k] = nul
 .field-row input[type="checkbox"] { accent-color: var(--accent); }
 .field-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .field-name { user-select: none; }
+
+.history-bar { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 14px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+.hist-label { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.hist-input { border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px 8px; font-size: 11px; color: var(--text-primary); background: #f8f9fb; }
+.hist-sep { color: #cbd5e1; }
+.hist-info { font-size: 11px; color: var(--accent); font-weight: 600; }
 </style>

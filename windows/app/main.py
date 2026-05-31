@@ -16,6 +16,7 @@ from .api.ws_client import WsClient
 from .backend.parser import parse_message
 from .backend.dispatcher import DataDispatcher
 from .backend.models import Telemetry, Heartbeat, DeviceEvent
+from . import storage
 
 # ── Paths ────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +47,10 @@ state = AppState()
 
 app = FastAPI(title="EdgeHub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+
+@app.on_event("startup")
+async def startup():
+    await storage.init_db()
 
 # ── SSE stream endpoint ──────────────────────────────
 
@@ -118,6 +123,12 @@ def broadcast_sse(event: str, data: str):
         except asyncio.QueueFull:
             pass
 
+# ── Phase 3: Command state ─────────────────────────────
+
+_seq_counter = 0
+_pending_commands: dict[int, asyncio.Future] = {}
+CMD_TIMEOUT = 5  # seconds
+
 # ── Status API ────────────────────────────────────────
 
 @app.get("/api/status")
@@ -147,11 +158,24 @@ async def api_connect(request: Request):
         broadcast_sse("event", json.dumps({"board": "server", "event": "disconnected"}))
 
     def on_message(text: str):
+        # Phase 3: check for ACK response from Pi
+        try:
+            data = json.loads(text)
+            if data.get("type") == "ack":
+                handle_ack_response(data)
+                return
+        except (json.JSONDecodeError, TypeError):
+            pass
+
         model = parse_message(text)
         if model is None:
             return
         if isinstance(model, Telemetry):
             broadcast_sse("telemetry", json.dumps({"board_id": model.board_id, "raw": model.raw}))
+            asyncio.run_coroutine_threadsafe(
+                storage.insert_telemetry(model.board_id, int(time.time() * 1000), model.raw),
+                asyncio.get_event_loop(),
+            )
         elif isinstance(model, Heartbeat):
             broadcast_sse("heartbeat", json.dumps({"board_id": model.board_id, "ts": model.ts}))
         elif isinstance(model, DeviceEvent):
@@ -172,6 +196,79 @@ async def api_connect(request: Request):
         state.server_connected = True
         return {"success": True}
     return {"success": False, "error": f"Connection timed out to {host}:{port}"}
+
+# ── Phase 3: Command endpoint ─────────────────────────
+
+@app.post("/api/command")
+async def api_command(request: Request):
+    global _seq_counter
+    if not state.ws_client or not state.ws_client.is_connected():
+        return JSONResponse({"success": False, "error": "WebSocket to Pi not connected"}, status_code=503)
+
+    body = await request.json()
+    board_id = body.get("board_id", "")
+    cmd = body.get("cmd", "")
+    if not board_id or not cmd:
+        return JSONResponse({"success": False, "error": "board_id and cmd required"}, status_code=400)
+
+    _seq_counter += 1
+    seq = _seq_counter
+    ts = int(time.time() * 1000)
+    await storage.insert_command(board_id, ts, cmd, seq)
+
+    # Send command via WebSocket to Pi
+    payload = json.dumps({"board_id": board_id, "cmd": cmd, "seq": seq, "ts": ts})
+    state.ws_client.send(payload)
+
+    # Wait for ACK with timeout
+    future: asyncio.Future = asyncio.get_event_loop().create_future()
+    _pending_commands[seq] = future
+    try:
+        result = await asyncio.wait_for(future, timeout=CMD_TIMEOUT)
+        return {"success": True, "response": result.get("response", ""), "seq": seq}
+    except asyncio.TimeoutError:
+        _pending_commands.pop(seq, None)
+        await storage.update_command_response(seq, "", "timeout")
+        return JSONResponse({"success": False, "error": "Command timed out", "seq": seq}, status_code=504)
+
+# ── Phase 3: History endpoint ─────────────────────────
+
+@app.get("/api/history/{board_id}")
+async def api_history(board_id: str, from_: int = 0, to: int = 0, limit: int = 5000):
+    if not from_ or not to:
+        now = int(time.time() * 1000)
+        from_ = from_ or (now - 600_000)  # default last 10 min
+        to = to or now
+    return await storage.query_history(board_id, from_, to, limit)
+
+# ── Phase 3: Export endpoint ──────────────────────────
+
+@app.get("/api/export/{board_id}")
+async def api_export(board_id: str, from_: int = 0, to: int = 0):
+    if not from_ or not to:
+        now = int(time.time() * 1000)
+        from_ = from_ or (now - 600_000)
+        to = to or now
+    csv_data = await storage.export_csv(board_id, from_, to)
+    from fastapi.responses import PlainTextResponse
+    filename = f"edgehub_{board_id}_{from_}_{to}.csv"
+    return PlainTextResponse(csv_data, media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+# ── Phase 3: Handle ACK from Pi ───────────────────────
+
+def handle_ack_response(data: dict):
+    seq = data.get("seq")
+    if seq and seq in _pending_commands:
+        future = _pending_commands.pop(seq)
+        if not future.done():
+            future.set_result(data)
+        asyncio.run_coroutine_threadsafe(
+            storage.update_command_response(seq, json.dumps(data), data.get("status", "ok")),
+            asyncio.get_event_loop(),
+        )
+    else:
+        _log(f"ACK seq={seq} arrived after timeout, discarded")
 
 # ── Frontend static files ────────────────────────────
 

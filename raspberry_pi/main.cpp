@@ -39,6 +39,54 @@ int main() {
         LOG("%s", msg.c_str());
     });
 
+    // Phase 3: command handler — parse PC→board commands from WS JSON
+    ws.set_command_handler([&](const std::string &msg) {
+        // Simple JSON parse: {"board_id":"x","cmd":"y","seq":N}
+        auto extract = [&](const char *key) -> std::string {
+            size_t p = msg.find(std::string("\"") + key + "\":\"");
+            if (p == std::string::npos) return "";
+            p += strlen(key) + 4;
+            size_t e = msg.find('"', p);
+            return (e != std::string::npos) ? msg.substr(p, e - p) : "";
+        };
+        auto extract_seq = [&]() -> int {
+            size_t p = msg.find("\"seq\":");
+            if (p == std::string::npos) return -1;
+            p += 6;
+            return atoi(msg.c_str() + p);
+        };
+        std::string bid = extract("board_id");
+        std::string cmd = extract("cmd");
+        int seq = extract_seq();
+        if (bid.empty() || cmd.empty()) return;
+
+        auto *ch = conn_mgr.get_by_board_id(bid);
+        if (!ch || ch->state == BoardState::OFFLINE) {
+            // Send error ACK back via WS
+            char ack[256];
+            snprintf(ack, sizeof(ack),
+                "{\"type\":\"ack\",\"seq\":%d,\"status\":\"failed\",\"response\":\"board offline\"}", seq);
+            ws.broadcast(ack);
+            LOG("CMD REJECT board=%s reason=offline", bid.c_str());
+            return;
+        }
+        // Build CMD frame and enqueue
+        uint8_t buf[FRAME_MAX_SIZE];
+        int cmd_len = cmd.size();
+        int total = 6 + cmd_len + 2; // header + payload + CRC
+        uint16_t crc = crc16_modbus((const uint8_t*)cmd.data(), cmd_len);
+        // Simple CMD frame: just send the cmd text as payload
+        Frame f;
+        f.version = FRAME_VERSION;
+        f.length = total;
+        f.type = TYPE_CMD;
+        f.payload_len = cmd_len;
+        memcpy(f.payload, cmd.data(), cmd_len);
+        f.crc = crc;
+        ch->enqueue_send(f);
+        LOG("CMD SEND board=%s seq=%d cmd=%s", bid.c_str(), seq, cmd.c_str());
+    });
+
     int listen_fd = acceptor.start();
     if (listen_fd < 0) {
         fprintf(stderr, "Failed to start TCP acceptor\n");
@@ -94,6 +142,15 @@ int main() {
                         }
                     }
                     ch2->msg_count++;  // count frames, not raw bytes
+                    // Phase 3: ACK frames → broadcast to PC via WS
+                    if (f.type == TYPE_ACK) {
+                        std::string ack(reinterpret_cast<const char*>(f.payload), f.payload_len);
+                        char buf[512];
+                        snprintf(buf, sizeof(buf),
+                            "{\"type\":\"ack\",\"board_id\":\"%s\",\"response\":\"%s\",\"status\":\"ok\"}",
+                            ch2->board_id.c_str(), ack.c_str());
+                        ws.broadcast(buf);
+                    }
                     router.route(*ch2, f);
                 });
 
@@ -114,6 +171,28 @@ int main() {
                     }
                     conn_mgr.remove(fd);
                     continue;
+                }
+
+                // Phase 3: EPOLLOUT — drain send queue
+                if (ev & EPOLLOUT) {
+                    auto *ch = conn_mgr.get(fd);
+                    if (ch && ch->tx_pending) {
+                        bool done = true;
+                        while (!ch->tx_queue.empty()) {
+                            Frame &f = ch->tx_queue.front();
+                            ssize_t n = send(fd, f.payload, f.payload_len, MSG_NOSIGNAL);
+                            if (n < 0) {
+                                if (errno == EAGAIN || errno == EWOULDBLOCK) { done = false; break; }
+                                LOG("BOARD SEND ERROR fd=%d err=%s", fd, strerror(errno));
+                                break;
+                            }
+                            ch->tx_queue.erase(ch->tx_queue.begin());
+                        }
+                        if (done && ch->tx_queue.empty()) {
+                            ch->tx_pending = false;
+                            ep.mod(fd, EPOLLIN | EPOLLET);
+                        }
+                    }
                 }
 
                 if (ev & EPOLLIN) {

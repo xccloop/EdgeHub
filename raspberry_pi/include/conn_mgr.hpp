@@ -16,6 +16,13 @@ public:
     BoardChannel* get(int fd);
     bool has(int fd) const;
 
+    // Phase 3: find channel by board_id
+    BoardChannel* get_by_board_id(const std::string &id) {
+        for (auto &pair : m_channels)
+            if (pair.second.board_id == id) return &pair.second;
+        return nullptr;
+    }
+
     // Returns channels that have timed out (caller closes them).
     std::vector<BoardChannel*> check_heartbeats(uint64_t now_ms);
 

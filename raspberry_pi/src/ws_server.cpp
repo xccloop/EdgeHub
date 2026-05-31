@@ -86,10 +86,9 @@ void WsServer::on_ws_close(mg_connection *c) {
 
 void WsServer::on_ws_message(mg_connection *c, const std::string &msg) {
     (void)c;
-    // Phase 1: server only broadcasts upstream, no command routing yet.
-    // Log any incoming messages from PC for debugging.
-    if (msg.size() < 256) {
-        printf("[ws] received from pc: %s\n", msg.c_str());
+    // Phase 3: parse command JSON and route to board
+    printf("[ws] command from pc: %s\n", msg.c_str());
+    if (m_command_handler) {
+        m_command_handler(msg);
     }
-    // Phase 2: parse command JSON and route to MessageRouter → BoardChannel
 }

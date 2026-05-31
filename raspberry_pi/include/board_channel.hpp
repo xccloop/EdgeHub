@@ -31,11 +31,17 @@ public:
 
     FrameParser parser;
 
+    // Phase 3: downstream send queue
+    std::vector<Frame> tx_queue;
+    bool tx_pending = false;
+
     BoardChannel(int _fd, const std::string &_ip);
 
     void set_frame_callback(FrameParser::FrameCallback cb) {
         parser.set_callback(cb);
     }
+
+    void enqueue_send(const Frame &f) { tx_queue.push_back(f); if (!tx_pending) tx_pending = true; }
 
     // Returns false if peer closed or read error → caller should remove.
     bool read_all();

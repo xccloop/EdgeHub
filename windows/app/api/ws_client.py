@@ -39,6 +39,11 @@ class WsClient:
     def is_connected(self) -> bool:
         return self._ws is not None and self._ws.sock is not None and self._ws.sock.connected
 
+    def send(self, msg: str):
+        """Send a message through the WebSocket (for downstream commands)."""
+        if self._ws and self._ws.sock and self._ws.sock.connected:
+            self._ws.send(msg)
+
     def _run(self):
         while self._running:
             self._ws = websocket.WebSocketApp(
