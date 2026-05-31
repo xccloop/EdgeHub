@@ -24,8 +24,9 @@ windows/build/
 windows/frontend/node_modules/
 windows/frontend/dist/
 
-# Runtime logs
+# Runtime logs & data
 *.log
+windows/data/
 
 # Environment
 .env
