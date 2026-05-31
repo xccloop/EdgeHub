@@ -61,10 +61,11 @@ onMounted(() => {
   chart.on('restore', () => { userZoomed = false })
 })
 
-// B2: watch fields prop changes → rebuild series
-watch(() => props.fields, () => {
+// Watch fields or data changes → rebuild series
+watch([() => props.fields, () => props.data], () => {
   if (!chart) return
-  chart.setOption({ series: buildSeries() }, true)  // B3: notMerge=true removes orphaned series
+  userZoomed = false  // Bug 2: reset zoom on board/field switch
+  chart.setOption({ series: buildSeries() }, true)
 })
 
 onUnmounted(() => { chart?.dispose(); chart = null })

@@ -58,7 +58,6 @@ async def api_stream(request: Request):
 
     async def event_generator():
         try:
-            yield f"event: connected\ndata: {{}}\n\n"
             while True:
                 if await request.is_disconnected():
                     break

@@ -74,14 +74,17 @@ const fieldColor = (f: string) => {
 }
 
 function toggleField(f: string) {
+  if (!store.visibleFields[activeBoard.value]) {
+    store.visibleFields[activeBoard.value] = new Set()  // Bug 3: lazy init
+  }
   const s = store.visibleFields[activeBoard.value]
-  if (!s) return
   if (s.has(f)) s.delete(f); else s.add(f)
 }
 
 function clearWaveforms() {
   if (activeBoard.value) {
     store.waveforms[activeBoard.value] = {}
+    _lastTs = {}  // Dev 5: reset timestamp cache
     for (const key of Object.keys(_chartRefs)) {
       _chartRefs[key]?.clearZoom?.()
     }

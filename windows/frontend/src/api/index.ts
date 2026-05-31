@@ -71,7 +71,7 @@ const DEFAULT_GROUPS: { pattern: RegExp; title: string }[] = [
   { pattern: /^(kp|ki|kd)$/,   title: 'PID Parameters' },
   { pattern: /^encoder/,        title: 'Encoder' },
   { pattern: /^temp/,           title: 'Temperature' },
-  { pattern: /^(voltage|current|power)$/, title: 'Power' },
+  { pattern: /^(voltage|current|power\b)/, title: 'Power' },  // Dev 2: word boundary match
 ]
 
 export function getGroups(): { pattern: RegExp; title: string }[] {
@@ -104,7 +104,7 @@ export function pushWaveform(boardId: string, fields: Record<string, number>) {
     if (!store.waveforms[boardId][path]) store.waveforms[boardId][path] = []
     store.waveforms[boardId][path].push({ ts, val })
     if (store.waveforms[boardId][path].length > MAX_WAVEFORM_POINTS) {
-      store.waveforms[boardId][path].splice(0, 50)
+      store.waveforms[boardId][path].splice(0, store.waveforms[boardId][path].length - MAX_WAVEFORM_POINTS)
     }
     // auto-add to visible set
     store.visibleFields[boardId].add(path)
@@ -132,6 +132,7 @@ export function startEventSource(mock = false) {
   if (_es) { _es.close(); _es = null }
   if (_mockEs) { _mockEs.close(); _mockEs = null }
   store.mockActive = mock
+  if (mock) store.serverConnected = true  // Q3: mock = virtual connection
   const url = mock ? `${BASE}/api/mock-wave` : `${BASE}/api/stream`
   const es = new EventSource(url)
   if (mock) _mockEs = es; else _es = es
