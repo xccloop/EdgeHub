@@ -74,6 +74,38 @@ async def api_stream(request: Request):
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+# ── Mock wave endpoint (no hardware needed) ──────────
+
+@app.get("/api/mock-wave")
+async def api_mock_wave(request: Request):
+    """Push sine-wave telemetry directly to SSE — zero hardware dependency."""
+    import math
+    async def generator():
+        t0 = time.time()
+        while not await request.is_disconnected():
+            t = time.time() - t0
+            payload = {
+                "board_id": "test_wave",
+                "speed": 500 + 100 * math.sin(t * 0.5),
+                "kp": 75 + 10 * math.sin(t * 0.3),
+                "ki": 10 + 3 * math.sin(t * 0.4),
+                "kd": 30 + 5 * math.sin(t * 0.35),
+                "imu": {
+                    "ax": 0.1 * math.sin(t * 2),
+                    "ay": 0.05 * math.cos(t * 1.8),
+                    "gz": -0.3 + 0.15 * math.sin(t * 1.5),
+                },
+                "encoder": int(1000 + 200 * math.sin(t * 0.7)),
+                "temp": 45 + 3 * math.sin(t * 0.2),
+                "voltage": 12.0 + 0.5 * math.sin(t * 0.15),
+                "current": 2.0 + 0.3 * math.sin(t * 0.25),
+            }
+            broadcast_sse("telemetry", json.dumps({"board_id": "test_wave", "raw": payload}))
+            await asyncio.sleep(0.05)
+    return StreamingResponse(generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 def broadcast_sse(event: str, data: str):
     """Push data to all SSE clients."""
     msg = f"event: {event}\ndata: {data}\n\n"

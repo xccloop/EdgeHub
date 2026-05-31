@@ -10,7 +10,7 @@
 
     <div class="card-grid" v-if="deviceList.length > 0">
       <div v-for="dev in deviceList" :key="dev.board_id"
-        class="device-card card-lift">
+        class="device-card card-lift" @click="$router.push('/device?board=' + dev.board_id)">
         <div class="card-accent" :style="{ background: accentColor(dev.board_id) }"></div>
         <div class="card-body">
           <div class="card-header-row">

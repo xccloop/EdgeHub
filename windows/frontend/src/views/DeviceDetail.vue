@@ -1,20 +1,144 @@
 <template>
   <div class="device-detail">
     <div class="page-header">
-      <h1>Device Detail</h1>
-      <p class="subtitle">Select a device from Dashboard to view real-time waveforms</p>
+      <div>
+        <h1>Device Detail</h1>
+        <p class="subtitle" v-if="activeBoard">Real-time waveforms for <b>{{ activeBoard }}</b></p>
+        <p class="subtitle" v-else>Select a device from Dashboard</p>
+      </div>
+      <div class="header-actions" v-if="activeBoard">
+        <el-button size="small" @click="clearWaveforms" text>Clear</el-button>
+        <el-button size="small" :type="frozen ? 'warning' : 'default'" @click="frozen = !frozen" text>
+          {{ frozen ? '▶ Unfreeze' : '⏸ Freeze' }}
+        </el-button>
+      </div>
     </div>
-    <el-empty description="Phase 2 — IMU charts, parameter history & command console coming soon" />
+
+    <div class="detail-layout" v-if="activeBoard">
+      <!-- charts -->
+      <div class="charts-area">
+        <WaveChart
+          v-for="(fields, groupTitle) in groups" :key="groupTitle"
+          :ref="el => setChartRef(groupTitle, el)"
+          :title="groupTitle" :fields="fields"
+          :data="boardData" :frozen="frozen"
+        />
+        <el-empty v-if="!hasData" description="No waveform data yet. Waiting for telemetry…" />
+      </div>
+
+      <!-- field tree -->
+      <div class="field-panel" v-if="allFields.length > 0">
+        <div class="panel-title">Fields</div>
+        <div class="field-list">
+          <label v-for="f in allFields" :key="f" class="field-row">
+            <input type="checkbox" :checked="visibleFields.has(f)" @change="toggleField(f)" />
+            <span class="field-dot" :style="{ background: fieldColor(f) }"></span>
+            <span class="field-name">{{ f }}</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <el-empty v-else description="Click a device card on Dashboard to view waveforms" />
   </div>
 </template>
+
+<script setup lang="ts">
+import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
+import { store, groupFields, WavePoint } from '@/api'
+import WaveChart from '@/components/WaveChart.vue'
+
+const route = useRoute()
+const activeBoard = computed(() => route.query.board as string || '')
+const frozen = ref(false)
+const _chartRefs: Record<string, any> = {}
+const COLORS = ['#4a6cf7','#f97316','#10b981','#ef4444','#8b5cf6','#f59e0b','#ec4899','#06b6d4']
+
+function setChartRef(title: string, el: any) { if (el) _chartRefs[title] = el }
+
+const boardData = computed(() => store.waveforms[activeBoard.value] || {})
+const allFields = computed(() => Object.keys(boardData.value).sort())
+const visibleFields = computed(() => store.visibleFields[activeBoard.value] || new Set())
+const hasData = computed(() => allFields.value.length > 0)
+
+const groups = computed(() => {
+  const active = allFields.value.filter(f => visibleFields.value.has(f))
+  return groupFields(active)
+})
+
+const fieldColor = (f: string) => {
+  const idx = allFields.value.indexOf(f)
+  return COLORS[idx % COLORS.length]
+}
+
+function toggleField(f: string) {
+  const s = store.visibleFields[activeBoard.value]
+  if (!s) return
+  if (s.has(f)) s.delete(f); else s.add(f)
+}
+
+function clearWaveforms() {
+  if (activeBoard.value) {
+    store.waveforms[activeBoard.value] = {}
+    for (const key of Object.keys(_chartRefs)) {
+      _chartRefs[key]?.clearZoom?.()
+    }
+  }
+}
+
+// push new data points to charts
+let _lastTs: Record<string, number> = {}
+watch(() => boardData.value, () => {
+  const data = boardData.value
+  const now = Date.now()
+  for (const [groupTitle, fields] of Object.entries(groups.value)) {
+    const chart = _chartRefs[groupTitle]
+    if (!chart) continue
+    const vals: Record<string, number> = {}
+    let hasNew = false
+    for (const f of fields) {
+      const pts = data[f]
+      if (pts && pts.length > 0) {
+        const last = pts[pts.length - 1]
+        if (!_lastTs[f] || last.ts > _lastTs[f]) {
+          vals[f] = last.val
+          _lastTs[f] = last.ts
+          hasNew = true
+        }
+      }
+    }
+    if (hasNew) chart.append(now, vals)
+  }
+}, { deep: true })
+
+onUnmounted(() => { for (const k of Object.keys(_chartRefs)) _chartRefs[k] = null })
+</script>
 
 <style scoped>
 .device-detail { animation: slideUp 0.4s ease; }
 .page-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
   padding: 20px 28px; margin: -32px -32px 24px;
-  background: linear-gradient(135deg, #eef2ff 0%, #f0f4ff 100%);
+  background: linear-gradient(135deg, #eef2ff 0%, #fef7ee 100%);
   border-bottom: 1px solid var(--border);
 }
 .page-header h1 { font-size: 24px; font-weight: 700; }
 .subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+.subtitle b { color: var(--accent); }
+.header-actions { display: flex; gap: 8px; }
+
+.detail-layout { display: flex; gap: 16px; }
+.charts-area { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+
+.field-panel {
+  width: 220px; flex-shrink: 0; background: #fff; border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px; align-self: flex-start; position: sticky; top: 12px;
+}
+.panel-title { font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+.field-list { display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto; }
+.field-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 11px; font-family: 'Consolas', monospace; color: var(--text-primary); }
+.field-row input[type="checkbox"] { accent-color: var(--accent); }
+.field-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.field-name { user-select: none; }
 </style>
