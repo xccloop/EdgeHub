@@ -78,8 +78,8 @@
 ## 数据流
 
 ```
-上行: LS2K0300 ──TCP 二进制帧──▶ 树莓派(epoll+解析) ──JSON/WS──▶ Windows(仪表板)
-下行: Windows(PyQt5) ──JSON/WS──▶ 树莓派(路由) ──TCP──▶ LS2K0300 (Phase 2)
+上行: LS2K0300 ──TCP 二进制帧──▶ 树莓派(epoll+解析) ──WS──▶ Windows(FastAPI+SSE) ──▶ Vue 3 仪表板
+下行: (Phase 3)
 ```
 
 ## 技术栈
@@ -95,15 +95,17 @@
 | 编译 | CMake, g++ | C++11, ARM Cortex-A72 (`-mcpu=cortex-a72`) |
 | 目标 | Raspberry Pi 4B (2GB) | ARM Linux |
 
-### Windows 端 (Python 3)
+### Windows 端 (Python 3 + Vue 3)
 
 | 层 | 技术 | 说明 |
 |---|------|------|
-| GUI 框架 | **PyQt5** | Qt 信号/槽，主线程安全 |
-| UI 组件库 | **qfluentwidgets** | Fluent Design 风格，侧边栏导航 |
-| WebSocket | **QWebSocket** | 指数退避自动重连 (1s→2s→4s→...→30s) |
-| 数据模型 | Python `dataclass` | Telemetry, Heartbeat, DeviceEvent |
-| 分发 | **发布/订阅模式** | DataDispatcher — 类型订阅路由 |
+| 桌面壳 | **pywebview** | WebView 嵌入，原生窗口 |
+| 后端 | **FastAPI** + **uvicorn** | HTTP API + SSE 实时推送 |
+| WebSocket 客户端 | **websocket-client** | 连树莓派 WS 9528，指数退避重连 |
+| 前端框架 | **Vue 3** + **Vite** + **TypeScript** | SPA，hash 路由 |
+| UI 组件库 | **Element Plus** | 侧边栏导航，卡片，表单 |
+| 实时图表 | **ECharts 6** | 实时波形，appendData 增量渲染 |
+| 数据模型 | Python `dataclass` + Vue `reactive` | Telemetry, Heartbeat, DeviceEvent |
 | 打包 | PyInstaller | `--onefile --windowed` |
 
 ## 二进制帧协议
@@ -149,22 +151,20 @@ Epoll/
 │   │   └── time_util.hpp      #   ms 时间工具
 │   └── src/                   # 9 个实现文件
 │
-├── windows/                   # Windows 上位机 (Python) — 25 个文件
-│   ├── requirements.txt       # PyQt5, qfluentwidgets, pyqtgraph
+├── windows/                   # Windows 端 (Python + Vue 3) — ~50 个文件
+│   ├── requirements.txt       # Python 依赖
 │   ├── build.py               # PyInstaller 打包
-│   └── app/
-│       ├── main.py            # 入口
-│       ├── api/
-│       │   └── ws_client.py   #   QWebSocket 客户端
-│       ├── backend/
-│       │   ├── models.py      #   Telemetry/Heartbeat/DeviceEvent
-│       │   ├── parser.py      #   JSON → Model
-│       │   └── dispatcher.py  #   发布/订阅分发器
-│       └── ui/
-│           ├── main_window.py # FluentWindow 主窗口
-│           ├── pages/         # 5 个页面
-│           ├── widgets/       # 4 个组件
-│           └── styles/        # qfluentwidgets 主题
+│   ├── tools/simulate_board.py  # 板卡模拟器
+│   ├── app/
+│   │   ├── main.py            # FastAPI + pywebview 入口
+│   │   ├── api/ws_client.py   # WebSocket 客户端
+│   │   └── backend/           # models, parser, dispatcher
+│   └── frontend/              # Vue 3 + Vite SPA
+│       ├── package.json
+│       ├── src/
+│       │   ├── api/index.ts   # 全局 store + SSE + 波形管理
+│       │   ├── components/    # AppSidebar, WaveChart
+│       │   └── views/         # Dashboard, DeviceDetail, DataStream, Settings
 │
 └── docs/
     ├── superpowers/specs/     # 设计文档

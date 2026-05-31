@@ -25,4 +25,16 @@ windows/frontend/node_modules/
 windows/frontend/dist/
 
 # Runtime logs
-windows/edgehub.log
+*.log
+
+# Environment
+.env
+.env.local
+
+# Python virtual env
+.venv/
+
+# IDE
+.idea/
+*.swp
+*.swo

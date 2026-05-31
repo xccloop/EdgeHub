@@ -1,3 +1,6 @@
 # EdgeHub Windows Client Dependencies
-# Install PyQt5 via conda: conda install pyqt=5 pyqtgraph -c conda-forge
-pyqtgraph>=0.13
+# Install: pip install -r requirements.txt
+pywebview>=6.0          # desktop window wrapper
+fastapi>=0.136          # HTTP API + SSE server
+uvicorn>=0.34           # ASGI server
+websocket-client>=1.8   # WebSocket client (Pi connection)
