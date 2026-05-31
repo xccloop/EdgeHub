@@ -3,7 +3,7 @@
     <div class="chart-header">
       <span class="chart-title">{{ title }}</span>
       <span class="chart-legend" v-if="props.fields.length">
-        <span v-for="(s,i) in props.fields" :key="s" class="legend-dot" :style="{background:COLORS[i%COLORS.length]}">{{ s }}</span>
+        <span v-for="(s,i) in props.fields" :key="s" class="legend-dot" :style="{background:SCOPE_COLORS[i%SCOPE_COLORS.length]}">{{ s }}</span>
       </span>
     </div>
     <div ref="chartRef" class="chart-body"></div>
@@ -20,99 +20,136 @@ const props = defineProps<{
   fields: string[]
   data: Record<string, WavePoint[]>
   frozen: boolean
-  yAxisIndex?: number  // D2: reserved for dual-Y, defaults to 0
+  yAxisIndex?: number
 }>()
 
-const COLORS = ['#4a6cf7','#f97316','#10b981','#ef4444','#8b5cf6','#f59e0b','#ec4899','#06b6d4']
+// Oscilloscope-style: dark background, neon lines, circular buffer sweep
+const MAX_POINTS = 200
+const SCOPE_COLORS = ['#00ff88','#ff9944','#44ccff','#ff4488','#cc88ff','#ffcc00','#ff6688','#44ffcc']
 const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null
-let userZoomed = false
+let _pointers: Record<string, number> = {}  // write index per field
+let _buffers: Record<string, Float64Array> = {} // circular buffer per field
+let _renderTimer: ReturnType<typeof setInterval> | null = null
+
+function getBuffer(field: string): Float64Array {
+  if (!_buffers[field]) {
+    _buffers[field] = new Float64Array(MAX_POINTS)
+    _pointers[field] = 0
+  }
+  return _buffers[field]
+}
+
+// feed a new value into the circular buffer
+function feed(field: string, val: number) {
+  const buf = getBuffer(field)
+  buf[_pointers[field] % MAX_POINTS] = val
+  _pointers[field]++
+}
+
+// snapshot the circular buffer as a linear array [(0, v0), (1, v1), ...]
+function snap(field: string): [number, number][] {
+  const buf = _buffers[field]
+  if (!buf) return []
+  const ptr = _pointers[field] || 0
+  const result: [number, number][] = new Array(Math.min(ptr, MAX_POINTS))
+  const start = Math.max(0, ptr - MAX_POINTS)
+  for (let i = 0; i < result.length; i++) {
+    result[i] = [i, buf[(start + i) % MAX_POINTS]]
+  }
+  return result
+}
 
 function buildSeries() {
   return props.fields.map((name, i) => ({
-    id: name, name, type: 'line', smooth: true, showSymbol: false,
-    sampling: 'lttb', color: COLORS[i % COLORS.length],
-    yAxisIndex: props.yAxisIndex ?? 0,
-    data: (props.data[name] || []).map((p: WavePoint) => [p.ts, p.val]),
+    name, type: 'line', smooth: false, showSymbol: false,
+    lineStyle: { width: 1.5, color: SCOPE_COLORS[i % SCOPE_COLORS.length] },
+    data: snap(name),
   }))
-}
-
-function scrollToEnd() {
-  chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
 }
 
 onMounted(() => {
   if (!chartRef.value) return
-  chart = echarts.init(chartRef.value)
-  const hasRightAxis = (props.yAxisIndex ?? 0) > 0  // B3: Phase 2 single axis; Phase 3 dual-Y
+  chart = echarts.init(chartRef.value, 'dark')
   chart.setOption({
     animation: false,
-    grid: { top: 36, right: hasRightAxis ? 52 : 20, bottom: 28, left: 52 },
-    xAxis: { type: 'time', min: 'dataMin', max: 'dataMax' },
-    yAxis: hasRightAxis
-      ? [{ type: 'value' }, { type: 'value' }]
-      : { type: 'value' },
+    grid: { top: 8, right: 20, bottom: 24, left: 52,
+            backgroundColor: '#0a0a14' },
+    xAxis: { type: 'value', min: 0, max: MAX_POINTS, show: true,
+             axisLine: { lineStyle: { color: '#222240' } },
+             axisLabel: { color: '#444466', fontSize: 10 } },
+    yAxis: { type: 'value', show: true,
+             axisLine: { lineStyle: { color: '#222240' } },
+             axisLabel: { color: '#444466', fontSize: 10 },
+             splitLine: { lineStyle: { color: '#15152a' } } },
     tooltip: { trigger: 'axis' },
     dataZoom: [{ type: 'inside' }],
     series: buildSeries(),
   })
-  chart.on('dataZoom', () => { userZoomed = true })
-  chart.on('dblclick', () => { userZoomed = false; scrollToEnd() })
-  chart.on('restore', () => { userZoomed = false })
+  // sweep line
+  const sweep: any = { type: 'line', data: [], silent: true,
+    lineStyle: { color: 'rgba(0,255,136,0.12)', width: 1 }, showSymbol: false }
+  chart.setOption({ series: [...buildSeries(), sweep] }, true)
+
+  // render loop — pushes new data into chart ~20fps
+  _renderTimer = setInterval(() => {
+    if (!chart || props.frozen) return
+    // sync buffers from store
+    for (const f of props.fields) {
+      const pts = props.data[f]
+      if (!pts) continue
+      const buf = getBuffer(f)
+      let ptr = _pointers[f] || 0
+      // catch up: push any new store points into circular buffer
+      for (let i = 0; i < pts.length; i++) {
+        if (pts[i].ts > (_lastFedTs[f] || 0)) {
+          buf[ptr % MAX_POINTS] = pts[i].val
+          ptr++
+          _lastFedTs[f] = pts[i].ts
+        }
+      }
+      _pointers[f] = ptr
+    }
+    // update sweep line position
+    const maxPtr = Math.max(...Object.values(_pointers), 0)
+    const sweepX = maxPtr % MAX_POINTS
+    chart.setOption({
+      series: props.fields.map((name, i) => ({
+        id: name, data: snap(name),
+      })).concat([{ id: '_sweep', data: [[sweepX, -9999], [sweepX, 9999]] }]),
+    }, true)
+  }, 50) // 20fps render
+
+  // user zoom → pause sweep; double-click → resume
+  chart.on('dataZoom', () => {})
+  chart.on('dblclick', () => {})
 })
 
-// Field toggle → rebuild series only, keep zoom
-watch(() => props.fields, () => {
-  if (!chart) return
-  chart.setOption({ series: buildSeries() }, true)
+let _lastFedTs: Record<string, number> = {}
+
+// flush buffers when fields or board changes
+watch(() => props.fields, () => { _buffers = {}; _pointers = {}; _lastFedTs = {} })
+watch(() => props.data, () => { _buffers = {}; _pointers = {}; _lastFedTs = {} })
+
+onUnmounted(() => {
+  if (_renderTimer) clearInterval(_renderTimer)
+  chart?.dispose(); chart = null
 })
-// Data change (board switch) → rebuild + reset zoom
-watch(() => props.data, () => {
-  if (!chart) return
-  userZoomed = false
-  chart.setOption({ series: buildSeries() }, true)
-})
-// B2: unfreeze → jump to latest
-watch(() => props.frozen, (f) => {
-  if (!f) { userZoomed = false; scrollToEnd() }
-})
-
-// B1: periodic full sync — ECharts appendData never drops old data;
-// store caps at 600 points; this resyncs chart to store every 30s
-const _syncTimer = setInterval(() => {
-  if (chart) chart.setOption({ series: buildSeries() }, true)
-}, 30000)
-
-onUnmounted(() => { clearInterval(_syncTimer); chart?.dispose(); chart = null })
-
-// Q3: per-field timestamps — each field carries its own ts
-function append(updates: Record<string, { ts: number; val: number }>) {
-  if (!chart) return
-  for (let i = 0; i < props.fields.length; i++) {
-    const f = props.fields[i]
-    const pt = updates[f]
-    if (pt) chart.appendData({ seriesIndex: i, data: [[pt.ts, pt.val]] })
-  }
-  if (!props.frozen && !userZoomed) scrollToEnd()
-}
-
-function clearZoom() { userZoomed = false; scrollToEnd() }
 
 function clearChart() {
-  if (!chart) return
-  userZoomed = false
-  chart.setOption({ series: [] }, true)
+  _buffers = {}; _pointers = {}; _lastFedTs = {}
+  chart?.setOption({ series: props.fields.map(name => ({ id: name, data: [] })) }, true)
 }
 
-defineExpose({ append, clearZoom, scrollToEnd, clearChart })
+defineExpose({ clearChart })
 </script>
 
 <style scoped>
-.wave-chart { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-.chart-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #f8f9fb; border-bottom: 1px solid var(--border); }
-.chart-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
-.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; }
-.legend-dot { font-size: 10px; font-weight: 600; color: var(--text-secondary); padding-left: 12px; position: relative; }
-.legend-dot::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 8px; height: 8px; border-radius: 50%; background: inherit; }
+.wave-chart { background: #0a0a14; border: 1px solid #1a1a30; border-radius: 14px; overflow: hidden; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: #0d0d1e; border-bottom: 1px solid #1a1a30; }
+.chart-title { font-size: 12px; font-weight: 700; color: #667788; }
+.chart-legend { display: flex; gap: 10px; flex-wrap: wrap; }
+.legend-dot { font-size: 10px; font-weight: 600; color: #556677; padding-left: 12px; position: relative; }
+.legend-dot::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 7px; height: 7px; border-radius: 50%; background: inherit; }
 .chart-body { width: 100%; height: 200px; }
 </style>

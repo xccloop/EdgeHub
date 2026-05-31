@@ -84,8 +84,7 @@ function toggleField(f: string) {
 function clearWaveforms() {
   if (activeBoard.value) {
     store.waveforms[activeBoard.value] = {}
-    store.visibleFields[activeBoard.value] = new Set()  // Q4: reset visibility
-    _lastTs = {}
+    store.visibleFields[activeBoard.value] = new Set()
     frozen.value = false
     for (const key of Object.keys(_chartRefs)) {
       _chartRefs[key]?.clearChart?.()
@@ -93,38 +92,8 @@ function clearWaveforms() {
   }
 }
 
-// push new data points to charts — count total points for reliable reactivity
-const _totalPoints = computed(() => {
-  const data = boardData.value
-  let n = 0
-  for (const k of Object.keys(data)) n += data[k].length
-  return n
-})
-
-let _lastTs: Record<string, number> = {}
-watch(activeBoard, () => { _lastTs = {} })
-
-watch(_totalPoints, () => {
-  const data = boardData.value
-  for (const [groupTitle, fields] of Object.entries(groups.value)) {
-    const chart = _chartRefs[groupTitle]
-    if (!chart) continue
-    const updates: Record<string, { ts: number; val: number }> = {}
-    let hasNew = false
-    for (const f of fields) {
-      const pts = data[f]
-      if (pts && pts.length > 0) {
-        const last = pts[pts.length - 1]
-        if (!_lastTs[f] || last.ts > _lastTs[f]) {
-          updates[f] = { ts: last.ts, val: last.val }
-          _lastTs[f] = last.ts
-          hasNew = true
-        }
-      }
-    }
-    if (hasNew) chart.append(updates)
-  }
-})
+// WaveChart handles its own circular-buffer rendering loop (50ms / 20fps).
+// DeviceDetail just passes reactive props; charts read from store directly.
 
 onUnmounted(() => { for (const k of Object.keys(_chartRefs)) _chartRefs[k] = null })
 </script>
