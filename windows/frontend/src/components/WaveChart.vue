@@ -47,6 +47,7 @@ onMounted(() => {
              axisLine: { lineStyle: { color: '#1a1a30' } },
              axisLabel: { color: '#333355', fontSize: 10 },
              splitLine: { lineStyle: { color: '#0d0d1e' } } },
+    dataZoom: [{ type: 'inside', start: 100, end: 100 }],
     series: buildSeries(),
   })
 
