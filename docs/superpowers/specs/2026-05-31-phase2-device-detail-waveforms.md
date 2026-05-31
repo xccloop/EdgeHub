@@ -80,29 +80,49 @@ SSE telemetry
   → 每个分组一条 appendData → ECharts 增量渲染
 ```
 
-### 自动字段展开
+### 自动字段展开 + 黑白名单过滤
 
 ```typescript
+// 默认黑名单：内部统计字段，不应绘成波形
+const DEFAULT_BLACKLIST = [
+  /^sequence$/, /^seq$/, /^packet_count$/, /^uptime_ms$/,
+  /^timestamp$/, /^ts$/, /^board_id$/, /^type$/,
+]
+
+// 默认白名单：空 = 全部通过。设置后仅白名单字段生成波形
+const DEFAULT_WHITELIST: RegExp[] = []
+
 function flattenFields(obj: Record<string, any>, prefix = ''): Record<string, number> {
   const result: Record<string, number> = {}
   for (const [key, val] of Object.entries(obj)) {
-    if (typeof val === 'number' && isFinite(val)) result[prefix + key] = val
-    else if (typeof val === 'object' && val !== null && !Array.isArray(val))
+    if (typeof val === 'number' && isFinite(val)) {
+      const path = prefix + key
+      // 黑名单匹配 → 跳过
+      if (DEFAULT_BLACKLIST.some(r => r.test(path))) continue
+      // 白名单非空且不匹配 → 跳过
+      if (DEFAULT_WHITELIST.length > 0 && !DEFAULT_WHITELIST.some(r => r.test(path))) continue
+      result[path] = val
+    } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
       Object.assign(result, flattenFields(val, prefix + key + '.'))
+    }
   }
   return result
 }
 ```
 
-跳过 `null`、`NaN`、`Infinity` 和非数字值，避免图表断线。
+- 黑名单静默过滤 `sequence`、`packet_count`、`uptime_ms` 等内部字段，不产生空图表
+- 白名单默认空 = 全通过；用户可在 Settings 配置以限制只绘制关注的字段
+- 跳过 `null`、`NaN`、`Infinity` 避免图表断线
 
 ### 数据存储模型
 
 每个字段存储 `{ts: number, val: number}[]` 而非纯数字数组，这样 ECharts 可以基于真实时间戳渲染，不依赖固定频率假设。
 
-- **保留最近 600 个数据点**（覆盖 5Hz×120s 或 20Hz×30s，安全余量）
+- **保留最近 N 个数据点**，N 为全局配置项 `MAX_WAVEFORM_POINTS`，默认 600
+  - 不同设备频率差异大（IMU 100Hz vs 温度 1Hz），配置化后可按需调整
+  - 存于 `api/index.ts` 顶层常量，未来可移到 Settings 页暴露 UI
 - ECharts 配置 `xAxis: { type: 'time' }` 自动处理时间轴
-- X 轴范围 `min: 'dataMin', max: 'dataMax'` — 用户缩放后自动跟随实际数据范围，不硬编码 60s 窗口
+- X 轴范围 `min: 'dataMin', max: 'dataMax'` — 用户缩放后自动跟随实际数据范围，不硬编码窗口
 
 ### 可配置分组规则
 
@@ -154,7 +174,61 @@ const option = {
 
 - `animation: false` — 实时追加无需动画
 - `showSymbol: false` — 不画数据点圆圈，减少 GPU 开销
-- `sampling: 'lttb'` — Largest-Triangle-Three-Buckets 降采样，视觉保真度高
+- `sampling: 'lttb'` — Largest-Triangle-Three-Buckets 降采样
+
+### WaveChart 扩展接口（双 Y 轴预留）
+
+不同量纲的字段（如温度 0~80°C vs 电压 0~48V）数值范围差数十倍，挤在同一 Y 轴会看不清。Phase 2 不做双 Y 轴，但组件接口预留：
+
+```typescript
+// WaveChart.vue props
+interface SeriesConfig {
+  name: string
+  color?: string
+  yAxisIndex?: number  // 0=左轴, 1=右轴。Phase 2 始终为 0
+}
+
+// Phase 3 启用双轴时只需传 yAxisIndex，组件内部已支持多 yAxis 配置
+```
+
+### Freeze 按钮 — 冻结画面
+
+暂停图表渲染，但后台 `store.waveforms` 继续写入：
+
+```typescript
+const frozen = ref(false)
+
+function appendPoint(...) {
+  chart.appendData(...)
+  if (!frozen.value && !userZoomed.value) {
+    chart.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+  }
+}
+```
+
+- Freeze 开启 → 图表停在当前帧，数据持续积累
+- 关闭 → 图表立即跳到最新数据（相当于强制触发一次 dataZoom 复位）
+- 实际调试中比"Clear Waveforms"使用频率更高
+
+### 字段树面板 — 曲线显示/隐藏
+
+Device Detail 页右侧增加一个可折叠面板，实时列出当前板子的所有已发现字段路径：
+
+```
+┌─ Fields ──────────────────┐
+│ ☑ imu.ax    (blue)       │
+│ ☑ imu.ay    (orange)     │
+│ ☑ imu.gz    (green)      │
+│ ☑ speed     (blue)       │
+│ ☑ kp        (red)        │
+│ ☐ ki        (yellow)     │  ← 取消勾选，从图表中隐藏
+│ ☑ encoder   (cyan)       │
+└───────────────────────────┘
+```
+
+- 默认全部勾选（所有字段都显示）
+- 取消勾选 → 对应的 series 从 ECharts 中移除，不占视觉空间
+- 实现：`store.visibleFields[boardId]: Set<string>`，`WaveChart` 读取时过滤 series
 
 ### appendData 与 dataZoom 交互
 
@@ -363,13 +437,27 @@ async def api_mock_wave(request: Request):
 - 关闭时恢复正常 `/api/stream`
 - 本地 20Hz 正弦波直接灌入 `store` → ECharts 渲染，0 依赖外部硬件
 
-这样波形图开发 / 调试 / 演示完全脱离树莓派和板卡。
+端点长期保留，不作为临时调试工具——它解决了前后端开发强依赖硬件的问题，未来演示、开发、CI 自动测试均可使用。
 
 ---
 
-## 八、Phase 3 展望
+## 八、Phase 3 展望（按优先级排序）
 
-- 下行命令路由 (PC → Pi → Board)
-- SQLite 历史存储 + 回放
-- 波形导出 CSV/PNG
-- TLS 加密
+| 优先级 | 功能 | 理由 |
+|:--:|------|------|
+| **1** | **SQLite 历史存储 + 回放** | 系统从"实时监控工具"升级为"数据采集平台"，项目价值提升一个层级 |
+| 2 | 波形导出 CSV/PNG | 依赖 Phase 3.1 的存储层 |
+| 3 | 下行命令路由 | 本质是反向通道，架构价值低于数据持久化 |
+| 4 | TLS 加密 | 局域网场景非刚需 |
+
+### 架构价值总结
+
+当前设计最难得的地方：
+
+```
+Pi (TCP+WS relay)  →  FastAPI (SSE push)  →  Vue (ECharts render)
+                          ↑
+                    只依赖 {ts, val}[]
+```
+
+WaveChart 组件不关心数据来源——无论是实时 WebSocket、Mock 端点、SQLite、MQTT 还是云端 API，只要提供 `{ts, val}[]` 就能渲染。这个解耦比单纯实现一个实时曲线页面更有价值，决定了 EdgeHub 从 Phase 1 到 Phase N 的扩展天花板。
