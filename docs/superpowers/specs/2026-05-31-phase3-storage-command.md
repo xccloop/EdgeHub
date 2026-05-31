@@ -7,44 +7,61 @@
 ## 一、Phase 2 现状
 
 ```
-LS2K0300 ──TCP 0xEB90──▶ 树莓派(epoll) ──WS JSON──▶ Windows FastAPI ──SSE──▶ Vue 3 仪表板
-                                                          │
-                                                          └── 实时波形(Phase 2)
-                                                          └── Mock Wave(Phase 2)
+LS2K0300 ──TCP 0xEB90──▶ 树莓派(epoll) ──WS JSON──▶ Windows FastAPI ──SSE──▶ Vue 3
 ```
 
-已有功能: Dashboard 设备卡片、DataStream 分板标签、Device Detail 示波器波形、Freeze/Clear、字段树、白名单/分组、28 个 pytest
+已有: Dashboard 设备卡片、DataStream 分板标签、Device Detail 示波器波形、Freeze/Clear、字段树、白名单/分组、Mock Wave、28 个 pytest
 
 ---
 
 ## 二、Phase 3 目标
 
 ### 2.1 SQLite 历史存储
-
-- 每条 telemetry 到达时自动写入 Windows 本地 SQLite
-- 支持历史回放: 选择时间范围 → ECharts 重新渲染
-- 支持 CSV 导出: 按板子 + 时间范围导出
-- 自动清理: 超过 N 天的旧数据定时删除
+- telemetry 到达时自动写入 Windows 本地 SQLite (WAL 模式)
+- 历史回放: Device Detail 选择时间范围 → ECharts 渲染
+- CSV 导出: 按板子 + 时间范围
+- 可配置保留天数 (Settings, 默认 7 天), 自动清理
 
 ### 2.2 下行命令路由
-
 ```
-Windows(Device Detail) ──HTTP POST──▶ FastAPI ──WebSocket──▶ 树莓派 ──TCP 0x03──▶ LS2K0300
-                                                    ◀──TCP 0x10── LS2K0300(ACK)
+Windows(Device Detail) ──POST /api/command──▶ FastAPI ──WS──▶ Pi ──TCP CMD(0x03)──▶ LS2K0300
+                                               │   ▲                              │
+                                               │   └── WS ACK(0x10) ──── Pi ─────┘
+                                               ▼
+                                            SQLite commands 表
 ```
-
-- Device Detail 页波形图下方增加命令终端
-- 输入 `set speed 500` → 回车 → 帧类型 0x03 路由到指定板子
-- 板子返回 ACK 帧 0x10 → 终端显示响应
-- 命令历史保存在终端面板内
 
 ---
 
 ## 三、SQLite 方案
 
+### 并发写入控制
+
+FastAPI 默认多线程。SQLite 在并发写时易触发 `database is locked`。方案:
+
+- **WAL 模式**: `PRAGMA journal_mode=WAL` — 读不阻塞写
+- **串行化写**: 所有 `INSERT` 通过 `asyncio.Queue` + 单 consumer 协程执行
+- 使用 `aiosqlite` (异步驱动, 不阻塞事件循环)
+
+```python
+# storage.py
+_write_queue: asyncio.Queue = asyncio.Queue()
+
+async def _writer():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA journal_mode=WAL")
+        while True:
+            sql, params = await _write_queue.get()
+            await db.execute(sql, params)
+            await db.commit()
+
+async def insert_telemetry(board_id: str, ts: int, raw_json: str):
+    await _write_queue.put(("INSERT INTO telemetry ...", (board_id, ts, raw_json)))
+```
+
 ### 数据库位置
 
-`windows/data/edgehub.db`（FastAPI 进程本地）
+`windows/data/edgehub.db` (gitignored)
 
 ### 表结构
 
@@ -52,163 +69,185 @@ Windows(Device Detail) ──HTTP POST──▶ FastAPI ──WebSocket──▶
 CREATE TABLE telemetry (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     board_id  TEXT    NOT NULL,
-    ts        INTEGER NOT NULL,   -- Unix ms
-    raw_json  TEXT    NOT NULL     -- 完整遥测 JSON
+    ts        INTEGER NOT NULL,    -- Unix ms
+    raw_json  TEXT    NOT NULL
 );
-
 CREATE INDEX idx_telemetry_board_ts ON telemetry(board_id, ts);
 
 CREATE TABLE commands (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     board_id  TEXT    NOT NULL,
     ts        INTEGER NOT NULL,
-    cmd       TEXT    NOT NULL,     -- 发送的命令文本
-    response  TEXT,                 -- 板子返回的 ACK
+    cmd       TEXT    NOT NULL,
+    seq       INTEGER NOT NULL,    -- 序列号, 匹配 ACK
+    response  TEXT,
     status    TEXT    DEFAULT 'pending'  -- pending/success/failed/timeout
 );
 ```
 
-- `telemetry` 表直接存原始 JSON —— 与 Phase 2 的 `flattenFields` 逻辑天然兼容
-- `commands` 表记录每次下行命令的完整生命周期
-
-### 数据写入
-
-在 FastAPI 的 SSE telemetry 处理流程中插入一行 SQLite INSERT:
-
-```python
-# main.py — on_message 回调中
-db.execute("INSERT INTO telemetry(board_id, ts, raw_json) VALUES(?, ?, ?)",
-           (board_id, int(time.time()*1000), json.dumps(raw)))
-db.commit()
-```
+> **字段级查询**: Phase 3 存 raw_json + 前端 flattenFields 回放。如果需要按字段值筛选 (如 `speed>500`)，Phase 4 增加独立数值列或虚拟列。
 
 ### 数据清理
 
-启动时检查 → 删除 7 天前的数据:
+可配置保留天数，默认 7:
 
 ```python
-db.execute("DELETE FROM telemetry WHERE ts < ?", (cutoff,))
+# config: stored in edgehub_config or Settings UI
+RETENTION_DAYS = 7
+cutoff = int((time.time() - RETENTION_DAYS * 86400) * 1000)
+await db.execute("DELETE FROM telemetry WHERE ts < ?", (cutoff,))
 ```
+
+Settings 页新增 "Data Retention" 下拉框 (1/3/7/14/30 天)。
 
 ### 回放 API
 
 ```
-GET /api/history/{board_id}?from=1717000000000&to=1717100000000
-→ { "points": [{"ts":..., "raw":{...}}, ...] }
+GET /api/history/{board_id}?from=1717000000&to=1717100000&limit=5000
 ```
 
-前端拿到数据后直接注入 `store.waveforms` → ECharts 自动渲染。
+- `limit` 默认 5000，上限 10000
+- 时间窗口上限 1 小时 (强制截断, 返回 warning)
+- 返回 `{"points": [{ts, raw}, ...], "truncated": true/false}`
 
 ### 导出 API
 
 ```
 GET /api/export/{board_id}?from=...&to=...&format=csv
-→ 下载 CSV 文件
 ```
 
-### 前端页面
+- 直接流式生成 CSV
+- 列: `ts, board_id, speed, kp, ki, kd, imu.ax, imu.ay, ...` (自动展开常见字段)
 
-Device Detail 页增加 History 面板（折叠在波形图下方或侧边）:
-- 日期选择器 (from / to)
-- Load 按钮 → 回放
-- Export CSV 按钮
-- 清除回放数据按钮
+### 前端 History 面板
+
+Device Detail 页波形图下方 (与命令终端并排或折叠):
+- 日期时间选择器 (from / to)
+- "Load History" 按钮 → 注入 `store.waveforms` → ECharts 渲染
+- "Export CSV" 按钮
+- "Clear History" → 恢复实时模式
 
 ---
 
 ## 四、下行命令方案
 
-### 协议扩展
+### 协议帧
 
-复用现有二进制帧协议，新增两个 Type:
+| Type | 值 | 方向 | Payload 格式 |
+|------|---|------|-------------|
+| CMD | 0x03 | PC→板子 | `{"cmd":"set speed 500","seq":1}` |
+| ACK | 0x10 | 板子→PC | `{"seq":1,"status":"ok","result":"speed = 500"}` |
 
-| Type | 值 | 方向 | 说明 |
-|------|---|------|------|
-| CMD | 0x03 | PC → 板子 | 下行命令 |
-| ACK | 0x10 | 板子 → PC | 命令响应 |
-
-CMD 帧 Payload 格式 (JSON):
-
-```json
-{"cmd": "set speed 500", "seq": 1}
-```
-
-ACK 帧 Payload 格式 (JSON):
-
-```json
-{"seq": 1, "status": "ok", "result": "speed = 500"}
-```
-
-`seq` 用于匹配命令和响应。
-
-### Windows 端 (FastAPI)
+### 序列号 (seq) 与超时
 
 ```
-POST /api/command
-Body: {"board_id": "sim_01", "cmd": "set speed 500"}
+Windows(FastAPI)                      Pi                         Board
+      │                                │                           │
+      │── POST /api/command ──▶        │                           │
+      │   seq = next_seq()             │                           │
+      │   pending[seq] = Future()      │                           │
+      │                                │── CMD frame(seq=1) ──▶   │
+      │                                │                           │ process
+      │                                │        ACK(seq=1) ◀───── │
+      │                                │── WS ACK(seq=1) ──▶      │
+      │   pending[seq].set_result()    │                           │
+      │   ◀── 200 OK ──                │                           │
 ```
 
-处理流程:
-1. 通过 WebSocket 连接发送 CMD 帧到树莓派
-2. 树莓派转发到对应 TCP 连接的板子
-3. 等待 ACK 帧 (超时 5s)
-4. 返回 `{"success": true, "response": "speed = 500"}`
+- FastAPI 维护 `_seq_counter: int` 和 `_pending: dict[int, asyncio.Future]`
+- 超时 5 秒 → `future.set_exception(TimeoutError)` → 返回 504
+- 超时后到达的 ACK: 记录日志后丢弃
+- Pi 转发 CMD 帧时**原样保留 seq**，不修改
 
-### 树莓派端 (C++)
-
-现有 WebSocket 服务器已经有 `on_ws_message` 回调（Phase 1 预留）。Phase 3 实现:
+### OFFLINE 检查
 
 ```cpp
-// ws_server.cpp — on_ws_message
-void WsServer::on_ws_message(mg_connection *c, const std::string &msg) {
-    // 解析 JSON → 找到 board_id → 查 ConnectionManager
-    // → 构建 CMD 帧 (Type=0x03) → 发送到对应 TCP fd
-    json j = json::parse(msg);
-    string board_id = j["board_id"];
-    string cmd = j["cmd"];
-    
-    auto* ch = conn_mgr.get_by_board_id(board_id);
-    if (ch) {
-        Frame f = build_frame(TYPE_CMD, cmd);
-        send(ch->fd, frame_data, frame_len);
+// ws_server.cpp — 收到命令时
+auto* ch = conn_mgr.get_by_board_id(board_id);
+if (!ch || ch->state == BoardState::OFFLINE) {
+    // 直接通过 WS 返回错误 ACK
+    send_ack(board_id, seq, "failed", "board offline");
+    return;
+}
+```
+
+### 非阻塞发送队列 (BoardChannel)
+
+Phase 1 的 BoardChannel 只实现了接收缓冲。Phase 3 需要发送队列:
+
+```cpp
+// board_channel.hpp — 新增
+std::vector<Frame> tx_queue;
+bool tx_pending = false;  // EPOLLOUT 已注册
+
+bool enqueue_send(const Frame &f) {
+    tx_queue.push_back(f);
+    if (!tx_pending) {
+        // 注册 EPOLLOUT
+        epoll_mod(fd, EPOLLIN | EPOLLOUT | EPOLLET);
+        tx_pending = true;
+    }
+    return true;
+}
+
+// main.cpp 事件循环中新增
+if (ev & EPOLLOUT) {
+    auto &ch = conn_mgr.get(fd);
+    while (!ch->tx_queue.empty()) {
+        Frame &f = ch->tx_queue.front();
+        ssize_t n = send(fd, f.data, f.len, MSG_NOSIGNAL);
+        if (n < 0) {
+            if (errno == EAGAIN) break;  // 缓冲区满, 下次 EPOLLOUT 继续
+            // 错误 → 关闭连接
+        }
+        ch->tx_queue.pop_front();
+    }
+    if (ch->tx_queue.empty()) {
+        epoll_mod(fd, EPOLLIN | EPOLLET);  // 移除 EPOLLOUT
+        ch->tx_pending = false;
     }
 }
 ```
 
-### 前端 (Vue 3)
+### WebSocket 状态检查
 
-Device Detail 页波形图下方新增命令终端:
+```python
+# main.py — POST /api/command
+if not state.ws_client or not state.ws_client.is_connected():
+    return JSONResponse({"error": "WebSocket to Pi not connected"}, status_code=503)
+```
+
+### 前端命令终端
+
+Device Detail 页波形图下方:
 
 ```
 ┌── Command Terminal ──────────────────────────────────┐
 │                                                       │
 │  [sim_01] $ set speed 500                             │
 │  [sim_01] > speed = 500                               │
+│  [sim_01] ✓ telemetry confirmed: speed=500 at 14:30   │
 │  [sim_01] $ get kp                                    │
 │  [sim_01] > kp = 75                                   │
+│  [sim_01] ! timeout (no ACK in 5s)                    │
 │                                                       │
-│  > set speed 600________________ [Send]               │
+│  > set ki 20___________________________ [Send] [Clear]│
 └───────────────────────────────────────────────────────┘
 ```
 
-- 绿色 `$` 前缀 = 发出的命令
-- 蓝色 `>` 前缀 = 板子返回的响应
-- 红色 `!` 前缀 = 超时/错误
-- 输入框 + Send 按钮
-- 终端内容存 localStorage，关闭重开还在
+- **绿色 `$`**: 发出的命令
+- **蓝色 `>`**: 板子 ACK 响应
+- **绿色 `✓`**: telemetry 自动确认 (命令执行后收到的新 telemetry 中对应字段匹配)
+- **红色 `!`**: 超时/错误
+- **键盘**: ↑↓ 翻历史命令, Enter 发送
+- **Clear 按钮**: 清空终端
+- 终端历史存 localStorage (最多 200 条)
 
-实现:
+Telemetry 自动确认逻辑:
 
 ```typescript
-async function sendCommand(cmd: string) {
-  const r = await fetch('/api/command', {
-    method: 'POST',
-    body: JSON.stringify({ board_id: activeBoard.value, cmd }),
-  })
-  const data = await r.json()
-  terminal.value.push({ type: 'send', text: cmd })
-  terminal.value.push({ type: data.success ? 'recv' : 'error', text: data.response || data.error })
-}
+// 发送 set speed 500 后, 监听下一条 telemetry
+// 如果 raw.speed == 500, 追加 "✓ telemetry confirmed: speed=500"
 ```
 
 ---
@@ -219,56 +258,61 @@ async function sendCommand(cmd: string) {
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 新增 | `app/storage.py` | SQLite 初始化、写入、查询、导出、清理 |
-| 修改 | `app/main.py` | telemetry 处理中插入 DB 写入；新增 `/api/history`, `/api/export`, `/api/command` |
-| 新增 | `frontend/src/components/CmdTerminal.vue` | 命令终端组件 |
-| 修改 | `frontend/src/views/DeviceDetail.vue` | 嵌入 CmdTerminal + History 面板 |
-| 修改 | `frontend/src/api/index.ts` | 新增 history/command API 调用 |
-| 新增 | `tools/test_storage.py` | SQLite 读写测试 |
-| 新增 | `data/` | SQLite 数据目录 (gitignored) |
+| 新增 | `app/storage.py` | aiosqlite + WAL + 写队列 + 清理 |
+| 修改 | `app/main.py` | telemetry→DB, `/api/history`, `/api/export`, `/api/command`, ws alive check |
+| 新增 | `frontend/src/components/CmdTerminal.vue` | 终端 UI + ↑↓ 历史 + auto-confirm |
+| 修改 | `frontend/src/views/DeviceDetail.vue` | 嵌入终端 + History 面板 |
+| 修改 | `frontend/src/views/Settings.vue` | 保留天数下拉框 |
+| 修改 | `frontend/src/api/index.ts` | history/command/export API |
+| 修改 | `frontend/package.json` | 无新增依赖 |
+| 新增 | `tools/test_storage.py` | SQLite 测试 |
+| 新增 | `tools/test_command.py` | 命令 seq/超时测试 |
 
 ### 树莓派端
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 修改 | `src/ws_server.cpp` | 实现 `on_ws_message` — 解析命令 → 查 board → 构建 CMD 帧 → TCP 发送 |
-| 修改 | `include/frame.hpp` | 新增 CMD/ACK 类型常量 (已有 TYPE_CMD=0x03, TYPE_ACK=0x10) |
-| 修改 | `include/conn_mgr.hpp` | 新增 `get_by_board_id()` 方法 |
-| 修改 | `src/msg_router.cpp` | 处理 ACK 帧 → 通过 WS 回传 PC |
-| 修改 | `main.cpp` | 帧回调中处理 TYPE_ACK → 更新命令状态 |
+| 修改 | `include/board_channel.hpp` | 新增 tx_queue + tx_pending + enqueue_send() |
+| 修改 | `include/conn_mgr.hpp` | 新增 `get_by_board_id()` |
+| 修改 | `src/ws_server.cpp` | 实现 on_ws_message — 解析命令 → 查板 → OFFLINE 检查 → enqueue_send |
+| 修改 | `src/msg_router.cpp` | ACK 帧 → WS 回传 PC |
+| 修改 | `main.cpp` | 事件循环中处理 EPOLLOUT + 帧回调中处理 TYPE_ACK |
+| 无需修改 | `include/frame.hpp` | TYPE_CMD=0x03, TYPE_ACK=0x10 已存在 |
 
 ### 测试
 
 | 文件 | 说明 |
 |------|------|
-| `tools/test_storage.py` | SQLite CRUD 测试 |
-| `tools/test_command.py` | 命令发送 + ACK 接收集成测试 |
+| `tools/test_storage.py` | SQLite WAL 并发写、回放分页、清理 |
+| `tools/test_command.py` | seq 生成/匹配、超时、OFFLINE 拒绝、EAGAIN 队列 |
 
 ---
 
 ## 六、不做的
 
-- 树莓派端 SQLite（存储在 Windows）
-- 数据库加密
-- 多用户/权限管理
+- 树莓派端 SQLite
+- 字段级索引查询 (Phase 4)
 - 命令宏/脚本
+- 数据库加密
+- 多用户权限
 
 ---
 
-## 七、数据流总览 (Phase 3 完成后)
+## 七、数据流总览
 
 ```
-                  ┌─────────── SQLite ───────────┐
-                  │  telemetry 表  commands 表   │
-                  └──────────▲────────┬──────────┘
-                             │        │
-  LS2K0300 ──TCP──▶ 树莓派 ──WS──▶ FastAPI ──SSE──▶ Vue 3
-      ▲                  ▲          │    ▲            │
-      │                  │          │    │            │
-      └── CMD(0x03) ────┘          │    │            │
-           树莓派转发               │    │        Device Detail
-                                    │    │        波形 + 终端
-                                    │    └── POST /api/command
-                                    └── GET /api/history
-                                        GET /api/export
+                  ┌── SQLite (WAL) ──────────┐
+                  │ telemetry │ commands      │
+                  │ writer coroutine          │
+                  └────────▲───────┬──────────┘
+                           │       │
+  LS2K0300 ──TCP──▶  Pi ──WS──▶ FastAPI ──SSE──▶ Vue 3
+      ▲           ▲   │          │    ▲            │
+      │           │   │          │    │            │
+      └─CMD(0x03)─┘   │          │    │         Device Detail
+           (tx_queue)  │          │    │         波形 + 终端 + History
+                       │          │    │
+                       │          └────┼── POST /api/command (seq/timeout)
+                       │               └── GET /api/history (分页)
+                       └── WS ACK ──────── GET /api/export (CSV)
 ```
