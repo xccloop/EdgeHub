@@ -200,18 +200,31 @@ python -m app.main
 ### 模拟测试
 
 ```bash
-# 模拟 LS2K0300 发送 Telemetry 帧 (需要构造二进制帧)
-echo -n $'\xeb\x90\x01\x00\x10\x01{"board_id":"test01","speed":500}' | \
-  python3 -c "import sys,struct; d=sys.stdin.buffer.read(); c=0xFFFF;
-  [c:=(c>>1)^0xA001 if c&1 else c>>1 for _ in range(8) for b in d+(c&0xFF,(c>>8)&0xFF)
-  if not (c:=c^b)]; sys.stdout.buffer.write(d+bytes([c&0xFF,(c>>8)&0xFF]))" | \
-  nc raspberrypi.local 9527
+# 模拟 LS2K0300 板卡发送数据
+cd windows
+D:\ANACONDA\envs\EdgeHub\python.exe tools\simulate_board.py 192.168.1.112 sim_01
 ```
+
+### 本地 Mock 波形（无需树莓派）
+
+1. 启动 EdgeHub 仪表板
+2. Settings → 打开 **Mock Wave** 开关
+3. 切到 **Device Detail** 页面
+4. 自动显示 20Hz 正弦波示波器 (暗底霓虹线, ECharts 实时渲染)
+
+### 运行测试
+
+```bash
+cd windows
+D:\ANACONDA\envs\EdgeHub\python.exe -m pytest tools/test_core.py -v
+```
+
+28 个测试覆盖：CRC-16/Modbus 帧协议、JSON 解析器、字段展开、分组规则
 
 ## Phase 计划
 
 | Phase | 内容 | 状态 |
 |-------|------|:--:|
 | Phase 1 | epoll 多路复用 + 二进制帧 + WebSocket 上行 + 仪表板 | ✅ |
-| Phase 2 | 下行命令路由 + pyqtgraph 实时波形 + SQLite 历史 | 🔲 |
-| Phase 3 | TLS 加密 + 多 PC 客户端 + 固件 OTA | 🔲 |
+| Phase 2 | ECharts 示波器波形 + Freeze + 字段树 + Mock Wave + 白名单/分组 | ✅ |
+| Phase 3 | SQLite 历史存储 + 下行命令 + 波形导出 + TLS | 🔲 |
