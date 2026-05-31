@@ -22,9 +22,9 @@ public:
     uint64_t connect_time_ms = 0;
     uint64_t last_heartbeat_ms = 0;
     uint64_t heartbeat_timeout_start_ms = 0; // P0: first-timeout timestamp
-    static constexpr int HEARTBEAT_TIMEOUT_MS = 5000;
-    static constexpr int HEARTBEAT_GRACE_MS   = 10000;
-    static constexpr int MAX_TIMEOUT_DURATION_MS = 15000; // 3 × 5s
+    static constexpr int HEARTBEAT_TIMEOUT_MS = 8000;   // 8s per-strike, WiFi jitter tolerant
+    static constexpr int HEARTBEAT_GRACE_MS   = 15000;  // 15s initial grace for unregistered boards
+    static constexpr int MAX_TIMEOUT_DURATION_MS = 24000; // 24s total (3 × 8s)
 
     // stats
     uint64_t msg_count = 0;

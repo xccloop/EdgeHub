@@ -61,7 +61,7 @@ def main():
     # Step 3: Send telemetry + heartbeat loop
     count = 0
     last_hb = time.time()
-    print("\nSending telemetry (2s) + heartbeat (4s). Ctrl+C to stop...")
+    print("\nSending telemetry (1s) + heartbeat (2s). Ctrl+C to stop...")
     try:
         while True:
             count += 1
@@ -76,10 +76,9 @@ def main():
             frame = build_frame(0x01, telemetry.encode())
             sock.sendall(frame)
             print(f"[TX] Telemetry #{count}: {len(frame)} bytes")
-            time.sleep(1)
 
-            # Heartbeat every 4s
-            if time.time() - last_hb >= 4:
+            # Heartbeat every 2s
+            if time.time() - last_hb >= 2:
                 hb_frame = build_frame(0x02, b"")
                 sock.sendall(hb_frame)
                 last_hb = time.time()
