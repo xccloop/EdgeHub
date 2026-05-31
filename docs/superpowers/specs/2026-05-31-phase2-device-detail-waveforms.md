@@ -197,6 +197,30 @@ setInterval(() => {
 }, 30000) // every 30s
 ```
 
+**Clear Waveforms 必须同时重置 userZoomed**：
+
+```typescript
+function clearWaveforms(boardId: string) {
+  store.waveforms[boardId] = {}
+  userZoomed.value = false  // 避免清除后图表还停在之前的缩放位置
+}
+```
+
+### 数据结构 Phase 3 兼容
+
+`store.waveforms` 的数据结构设计为：
+
+```typescript
+// store.waveforms[boardId][fieldPath] = { ts: number, val: number }[]
+// 例: store.waveforms['sim_01']['imu.ax'] = [
+//   { ts: 1717000000000, val: 0.01 },
+//   { ts: 1717000000050, val: 0.03 },
+//   ...
+// ]
+```
+
+Phase 3 接入 SQLite 时，每行的 `{board_id, field_path, ts, val}` 四元组可直接对应数据库表的一行。上层组件（`WaveChart.vue`）只依赖 `{ts, val}[]` 数组，不关心数据来源是内存还是数据库。迁移时只换持久化层，组件和 store 接口不变。
+
 ### DataStream 环形缓冲（顺手修）
 
 Phase 1 的 `store.perBoard[boardId]` 无限增长。Phase 2 加上限：
@@ -300,36 +324,46 @@ function pushPerBoard(bid: string, entry: LogLine) {
 | 字段容错 | 推送 `{"speed":null}` → 恢复数字 | 曲线断点跳过不崩溃 |
 | 正弦测试 | Python 脚本推送正弦波 | 圆滑曲线，峰值谷值清晰可见 |
 
-### 正弦波测试脚本（Python）
+### 前端独立调试：Mock 正弦波端点
+
+为让 ECharts 波形开发不依赖树莓派和板卡，在 FastAPI 后端新增一个纯本地测试端点：
+
+**`GET /api/mock-wave`（SSE 流）**
 
 ```python
-"""向 Windows FastAPI 本地 SSE 推送正弦波 telemetry 用于验证波形图。"""
-import time, math, json, requests
-
-API = "http://127.0.0.1:9529"
-BOARD = "test_wave"
-
-# 先触发连接
-requests.post(f"{API}/api/connect", json={"host": "192.168.1.112", "port": 9528})
-
-t0 = time.time()
-while True:
-    t = time.time() - t0
-    data = {
-        "board_id": BOARD,
-        "speed": 500 + 100 * math.sin(t * 0.5),
-        "kp": 75 + 10 * math.sin(t * 0.3),
-        "imu": {
-            "ax": 0.1 * math.sin(t * 2),
-            "ay": 0.05 * math.cos(t * 1.8),
-            "gz": -0.3 + 0.15 * math.sin(t * 1.5),
-        },
-    }
-    # 直接写入 FastAPI SSE 的 WebSocket 上行通道不可用；
-    # 替代方案：通过模拟器走树莓派中转（已验证可用）
-    # 或者启动一个小型 TCP 客户端直接发二进制帧到 Pi 9527
-    time.sleep(0.05)  # 20Hz
+@app.get("/api/mock-wave")
+async def api_mock_wave(request: Request):
+    """推送正弦波 telemetry，供前端独立调试 ECharts 滚动效果。"""
+    async def generator():
+        t0 = time.time()
+        while not await request.is_disconnected():
+            t = time.time() - t0
+            payload = {
+                "board_id": "test_wave",
+                "speed": 500 + 100 * math.sin(t * 0.5),
+                "kp": 75 + 10 * math.sin(t * 0.3),
+                "ki": 10 + 3 * math.sin(t * 0.4),
+                "kd": 30 + 5 * math.sin(t * 0.35),
+                "imu": {
+                    "ax": 0.1 * math.sin(t * 2),
+                    "ay": 0.05 * math.cos(t * 1.8),
+                    "gz": -0.3 + 0.15 * math.sin(t * 1.5),
+                },
+                "encoder": int(1000 + 200 * math.sin(t * 0.7)),
+                "temp": 45 + 3 * math.sin(t * 0.2),
+            }
+            # 直接推入 SSE 广播，跳过树莓派 → WebSocket 链路
+            broadcast_sse("telemetry", json.dumps({"board_id": "test_wave", "raw": payload}))
+            await asyncio.sleep(0.05)  # 20Hz
+    return StreamingResponse(generator(), media_type="text/event-stream")
 ```
+
+前端在 Settings 页增加一个 **"Mock Wave"** 开关按钮：
+- 开启时前端 `EventSource` 连到 `/api/mock-wave`（替代 `/api/stream`）
+- 关闭时恢复正常 `/api/stream`
+- 本地 20Hz 正弦波直接灌入 `store` → ECharts 渲染，0 依赖外部硬件
+
+这样波形图开发 / 调试 / 演示完全脱离树莓派和板卡。
 
 ---
 
