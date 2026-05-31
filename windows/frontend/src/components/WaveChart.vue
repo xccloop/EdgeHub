@@ -3,7 +3,9 @@
     <div class="chart-header">
       <span class="chart-title">{{ title }}</span>
       <span class="chart-legend" v-if="props.fields.length">
-        <span v-for="(s,i) in props.fields" :key="s" class="legend-dot" :style="{background:SCOPE_COLORS[i%SCOPE_COLORS.length]}">{{ s }}</span>
+        <span v-for="(s,i) in props.fields" :key="s" class="legend-item">
+          <span class="legend-bullet" :style="{background:SCOPE_COLORS[i%SCOPE_COLORS.length]}"></span>{{ s }}
+        </span>
       </span>
     </div>
     <div ref="chartRef" class="chart-body"></div>
@@ -51,10 +53,10 @@ onMounted(() => {
     grid: { top: 8, right: 20, bottom: 24, left: 48 },
     xAxis: { type: 'time',
              axisLine: { lineStyle: { color: '#1a1a30' } },
-             axisLabel: { color: '#333355', fontSize: 10 } },
+             axisLabel: { color: '#8899aa', fontSize: 11, fontFamily: 'Quicksand, sans-serif' } },
     yAxis: { type: 'value',
              axisLine: { lineStyle: { color: '#1a1a30' } },
-             axisLabel: { color: '#333355', fontSize: 10 },
+             axisLabel: { color: '#8899aa', fontSize: 11, fontFamily: 'Quicksand, sans-serif' },
              splitLine: { lineStyle: { color: '#0d0d1e' } } },
     tooltip: { trigger: 'axis' },
     dataZoom: [
@@ -91,9 +93,9 @@ defineExpose({ clearChart })
 .wave-chart { background: #080812; border: 1px solid #15152a; border-radius: 14px; overflow: hidden; position: relative; }
 .chart-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: #0a0a18; border-bottom: 1px solid #15152a; }
 .chart-title { font-size: 12px; font-weight: 700; color: #556; }
-.chart-legend { display: flex; gap: 10px; flex-wrap: wrap; }
-.legend-dot { font-size: 10px; font-weight: 600; color: #445; padding-left: 12px; position: relative; }
-.legend-dot::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 7px; height: 7px; border-radius: 50%; background: inherit; }
+.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+.legend-item { font-size: 10px; font-weight: 600; color: #8899aa; display: flex; align-items: center; gap: 5px; }
+.legend-bullet { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .chart-body { width: 100%; height: 200px; }
 .debug-count { position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: #333355; font-family: monospace; }
 </style>
