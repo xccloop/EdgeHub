@@ -88,7 +88,7 @@ function clearWaveforms() {
     _lastTs = {}
     frozen.value = false
     for (const key of Object.keys(_chartRefs)) {
-      _chartRefs[key]?.clearZoom?.()
+      _chartRefs[key]?.clearChart?.()
     }
   }
 }

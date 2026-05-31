@@ -98,7 +98,13 @@ function append(updates: Record<string, { ts: number; val: number }>) {
 
 function clearZoom() { userZoomed = false; scrollToEnd() }
 
-defineExpose({ append, clearZoom, scrollToEnd })
+function clearChart() {
+  if (!chart) return
+  userZoomed = false
+  chart.setOption({ series: [] }, true)
+}
+
+defineExpose({ append, clearZoom, scrollToEnd, clearChart })
 </script>
 
 <style scoped>
