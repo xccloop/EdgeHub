@@ -38,6 +38,7 @@ class AppState:
         self.dispatcher = DataDispatcher()
         self.server_connected = False
         self.sse_clients: list[asyncio.Queue] = []
+        self.sse_lock = threading.Lock()
 
 state = AppState()
 
@@ -58,7 +59,8 @@ async def startup():
 async def api_stream(request: Request):
     """Server-Sent Events endpoint for real-time data."""
     queue: asyncio.Queue = asyncio.Queue()
-    state.sse_clients.append(queue)
+    with state.sse_lock:
+        state.sse_clients.append(queue)
     _log(f"SSE client connected, total={len(state.sse_clients)}")
 
     async def event_generator():
@@ -72,8 +74,9 @@ async def api_stream(request: Request):
                 except asyncio.TimeoutError:
                     yield f": heartbeat\n\n"
         finally:
-            if queue in state.sse_clients:
-                state.sse_clients.remove(queue)
+            with state.sse_lock:
+                if queue in state.sse_clients:
+                    state.sse_clients.remove(queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -114,10 +117,12 @@ async def api_mock_wave(request: Request):
 def broadcast_sse(event: str, data: str):
     """Push data to all SSE clients."""
     msg = f"event: {event}\ndata: {data}\n\n"
-    n = len(state.sse_clients)
-    if n == 0:
+    with state.sse_lock:
+        clients = state.sse_clients[:]
+    if not clients:
         _log(f"SSE no clients, dropping {event}")
-    for q in state.sse_clients[:]:
+        return
+    for q in clients:
         try:
             q.put_nowait(msg)
         except asyncio.QueueFull:
@@ -275,6 +280,19 @@ def handle_ack_response(data: dict):
         )
     else:
         _log(f"ACK seq={seq} arrived after timeout, discarded")
+
+# ── Phase 3: Retention settings ───────────────────────
+
+@app.get("/api/retention")
+async def api_get_retention():
+    return {"days": storage._retention_days}
+
+@app.put("/api/retention")
+async def api_set_retention(request: Request):
+    body = await request.json()
+    days = body.get("days", 7)
+    storage.set_retention(days)
+    return {"days": days}
 
 # ── Frontend static files ────────────────────────────
 

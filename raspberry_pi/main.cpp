@@ -29,6 +29,7 @@ static void sig_handler(int) {
 int main() {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+    signal(SIGPIPE, SIG_IGN);
 
     Epoll ep(64);
     TcpAcceptor acceptor(9527);

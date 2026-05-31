@@ -65,7 +65,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { store, groupFields, WavePoint } from '@/api'
+import { store, groupFields, flattenFields, WavePoint } from '@/api'
 import WaveChart from '@/components/WaveChart.vue'
 import CmdTerminal from '@/components/CmdTerminal.vue'
 
@@ -136,23 +136,13 @@ async function loadHistory() {
   // inject into store for chart rendering
   if (!store.waveforms[activeBoard.value]) store.waveforms[activeBoard.value] = {}
   for (const pt of data.points) {
-    const fields = flattenFieldsLocal(pt.raw)
+    const fields = flattenFields(pt.raw)
     for (const [path, val] of Object.entries(fields)) {
       if (!store.waveforms[activeBoard.value][path]) store.waveforms[activeBoard.value][path] = []
       store.waveforms[activeBoard.value][path].push({ ts: pt.ts, val } as WavePoint)
     }
   }
   histLoading.value = false
-}
-
-function flattenFieldsLocal(obj: Record<string, any>, prefix = ''): Record<string, number> {
-  const result: Record<string, number> = {}
-  for (const [key, val] of Object.entries(obj)) {
-    if (typeof val === 'number' && isFinite(val)) result[prefix + key] = val
-    else if (typeof val === 'object' && val !== null && !Array.isArray(val))
-      Object.assign(result, flattenFieldsLocal(val, prefix + key + '.'))
-  }
-  return result
 }
 
 function exportCsv() {

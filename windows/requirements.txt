@@ -4,3 +4,5 @@ pywebview>=6.0          # desktop window wrapper
 fastapi>=0.136          # HTTP API + SSE server
 uvicorn>=0.34           # ASGI server
 websocket-client>=1.8   # WebSocket client (Pi connection)
+aiosqlite>=0.20         # async SQLite driver (Phase 3)
+pytest>=9.0             # test framework

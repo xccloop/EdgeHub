@@ -2,6 +2,7 @@
 #include "frame.hpp"
 #include "frame_parser.hpp"
 #include <string>
+#include <deque>
 #include <cstdint>
 #include <ctime>
 
@@ -32,7 +33,7 @@ public:
     FrameParser parser;
 
     // Phase 3: downstream send queue
-    std::vector<Frame> tx_queue;
+    std::deque<Frame> tx_queue;
     bool tx_pending = false;
 
     BoardChannel(int _fd, const std::string &_ip);

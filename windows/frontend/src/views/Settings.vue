@@ -39,12 +39,21 @@
     <!-- D1: Whitelist -->
     <el-card class="settings-card">
       <template #header>Field Whitelist</template>
-      <p class="card-desc">Only plot fields matching these regexes (empty = all pass). Example: <code>["imu.*","speed","kp|ki|kd"]</code></p>
+      <p class="card-desc">Only plot fields matching these regexes (empty = all pass).</p>
       <el-input v-model="whitelistJson" type="textarea" :rows="3" placeholder='["imu.*","speed"]' size="small" style="font-family:monospace;font-size:12px;" />
       <div class="btn-row">
         <el-button size="small" @click="applyWhitelist">Apply</el-button>
         <el-button size="small" text @click="resetWhitelist">Clear</el-button>
       </div>
+    </el-card>
+
+    <!-- Phase 3: Data Retention -->
+    <el-card class="settings-card">
+      <template #header>Data Retention</template>
+      <p class="card-desc">Auto-delete telemetry older than this.</p>
+      <el-select v-model="retentionDays" @change="setRetention" size="small" style="width:160px">
+        <el-option v-for="d in [1,3,7,14,30]" :key="d" :label="`${d} days`" :value="d" />
+      </el-select>
     </el-card>
   </div>
 </template>
@@ -114,9 +123,19 @@ function applyWhitelist() {
 function resetWhitelist() {
   localStorage.removeItem('edgehub_whitelist')
   whitelistJson.value = ''
-  reloadWhitelist()  // B3: immediately apply cleared whitelist
+  reloadWhitelist()
   ElMessage.success('Whitelist cleared')
 }
+
+// Phase 3: Data retention
+const retentionDays = ref(7)
+async function loadRetention() {
+  try { const r = await fetch('/api/retention'); const d = await r.json(); retentionDays.value = d.days } catch {}
+}
+async function setRetention(d: number) {
+  await fetch('/api/retention', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: d }) })
+}
+loadRetention()
 </script>
 
 <style scoped>
