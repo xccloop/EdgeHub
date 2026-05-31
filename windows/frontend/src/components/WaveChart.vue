@@ -27,7 +27,7 @@ let _renderTimer: ReturnType<typeof setInterval> | null = null
 
 function buildSeries() {
   return props.fields.map((name, i) => ({
-    name, type: 'line', smooth: false, showSymbol: false,
+    id: name, name, type: 'line', smooth: false, showSymbol: false,
     lineStyle: { width: 1.5, color: SCOPE_COLORS[i % SCOPE_COLORS.length] },
     data: (props.data[name] || []).map((p: WavePoint) => [p.ts, p.val]),
   }))
