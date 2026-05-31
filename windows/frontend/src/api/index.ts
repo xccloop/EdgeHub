@@ -28,9 +28,10 @@ function loadWhitelist(): RegExp[] {
 }
 
 // Whitelist: empty = all pass. User-configurable via Settings UI.
-export let WHITELIST: RegExp[] = []
+let _whitelist: RegExp[] = []
 
-export function reloadWhitelist() { WHITELIST = loadWhitelist() }
+export function getWhitelist(): RegExp[] { return _whitelist }
+export function reloadWhitelist() { _whitelist = loadWhitelist() }
 reloadWhitelist()  // initial load
 
 // ── Global store ─────────────────────────────────────
@@ -54,7 +55,8 @@ export function flattenFields(obj: Record<string, any>, prefix = ''): Record<str
     if (typeof val === 'number' && isFinite(val)) {
       const path = prefix + key
       if (DEFAULT_BLACKLIST.some(r => r.test(path))) continue
-      if (WHITELIST.length > 0 && !WHITELIST.some(r => r.test(path))) continue
+      const wl = getWhitelist()
+      if (wl.length > 0 && !wl.some(r => r.test(path))) continue
       result[path] = val
     } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
       Object.assign(result, flattenFields(val, prefix + key + '.'))

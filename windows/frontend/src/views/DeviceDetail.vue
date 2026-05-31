@@ -75,7 +75,7 @@ const fieldColor = (f: string) => {
 
 function toggleField(f: string) {
   if (!store.visibleFields[activeBoard.value]) {
-    store.visibleFields[activeBoard.value] = new Set()  // Bug 3: lazy init
+    store.visibleFields[activeBoard.value] = new Set()  // defensive init
   }
   const s = store.visibleFields[activeBoard.value]
   if (s.has(f)) s.delete(f); else s.add(f)

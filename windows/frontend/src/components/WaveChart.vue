@@ -77,7 +77,13 @@ watch(() => props.frozen, (f) => {
   if (!f) { userZoomed = false; scrollToEnd() }
 })
 
-onUnmounted(() => { chart?.dispose(); chart = null })
+// B1: periodic full sync — ECharts appendData never drops old data;
+// store caps at 600 points; this resyncs chart to store every 30s
+const _syncTimer = setInterval(() => {
+  if (chart) chart.setOption({ series: buildSeries() }, true)
+}, 30000)
+
+onUnmounted(() => { clearInterval(_syncTimer); chart?.dispose(); chart = null })
 
 // Q3: per-field timestamps — each field carries its own ts
 function append(updates: Record<string, { ts: number; val: number }>) {

@@ -66,7 +66,7 @@ const whitelistJson = ref(localStorage.getItem('edgehub_whitelist') || '')
 async function toggle() {
   if (store.serverConnected) {
     store.serverConnected = false; store.mockActive = false; statusText.value = 'Disconnected'
-    startEventSource(false)  // B5: close any active EventSource
+    // B2: just close ES, don't open a new useless connection
     return
   }
   connecting.value = true; statusText.value = 'Connecting...'
