@@ -22,7 +22,7 @@
     <el-card class="settings-card">
       <template #header>Mock Wave</template>
       <p class="card-desc">Generate 20Hz sine-wave telemetry locally — no hardware required.</p>
-      <el-switch v-model="mockActive" @change="toggleMock" active-text="Active" inactive-text="Off" />
+      <el-switch :model-value="mockActive" @change="toggleMock" active-text="Active" inactive-text="Off" />
     </el-card>
 
     <!-- Field Grouping -->
@@ -64,7 +64,11 @@ const groupJson = ref(localStorage.getItem('edgehub_field_groups') || '')
 const whitelistJson = ref(localStorage.getItem('edgehub_whitelist') || '')
 
 async function toggle() {
-  if (store.serverConnected) { store.serverConnected = false; statusText.value = 'Disconnected'; return }
+  if (store.serverConnected) {
+    store.serverConnected = false; store.mockActive = false; statusText.value = 'Disconnected'
+    startEventSource(false)  // B5: close any active EventSource
+    return
+  }
   connecting.value = true; statusText.value = 'Connecting...'
   const r = await connectServer(host.value, parseInt(port.value))
   connecting.value = false
@@ -110,6 +114,7 @@ function applyWhitelist() {
 function resetWhitelist() {
   localStorage.removeItem('edgehub_whitelist')
   whitelistJson.value = ''
+  reloadWhitelist()  // B3: immediately apply cleared whitelist
   ElMessage.success('Whitelist cleared')
 }
 </script>

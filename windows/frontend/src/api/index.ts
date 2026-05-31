@@ -101,13 +101,14 @@ export function pushWaveform(boardId: string, fields: Record<string, number>) {
   if (!store.visibleFields[boardId]) store.visibleFields[boardId] = new Set()
   const ts = Date.now()
   for (const [path, val] of Object.entries(fields)) {
-    if (!store.waveforms[boardId][path]) store.waveforms[boardId][path] = []
+    const isNew = !store.waveforms[boardId][path]
+    if (isNew) store.waveforms[boardId][path] = []
     store.waveforms[boardId][path].push({ ts, val })
     if (store.waveforms[boardId][path].length > MAX_WAVEFORM_POINTS) {
       store.waveforms[boardId][path].splice(0, store.waveforms[boardId][path].length - MAX_WAVEFORM_POINTS)
     }
-    // auto-add to visible set
-    store.visibleFields[boardId].add(path)
+    // B1: only auto-add to visible set on first discovery, don't override user choice
+    if (isNew) store.visibleFields[boardId].add(path)
   }
 }
 

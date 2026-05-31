@@ -72,6 +72,10 @@ watch(() => props.data, () => {
   userZoomed = false
   chart.setOption({ series: buildSeries() }, true)
 })
+// B2: unfreeze → jump to latest
+watch(() => props.frozen, (f) => {
+  if (!f) { userZoomed = false; scrollToEnd() }
+})
 
 onUnmounted(() => { chart?.dispose(); chart = null })
 

@@ -84,8 +84,9 @@ function toggleField(f: string) {
 function clearWaveforms() {
   if (activeBoard.value) {
     store.waveforms[activeBoard.value] = {}
+    store.visibleFields[activeBoard.value] = new Set()  // Q4: reset visibility
     _lastTs = {}
-    frozen.value = false  // B9: unfreeze on clear
+    frozen.value = false
     for (const key of Object.keys(_chartRefs)) {
       _chartRefs[key]?.clearZoom?.()
     }
