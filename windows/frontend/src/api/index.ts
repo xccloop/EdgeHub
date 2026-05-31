@@ -19,6 +19,7 @@ export const DEFAULT_BLACKLIST = [
   /^sequence$/, /^seq$/, /^packet_count$/, /^uptime_ms$/,
   /^timestamp$/, /^ts$/, /^board_id$/, /^type$/,
 ]
+export const DEFAULT_WHITELIST: RegExp[] = []  // empty = all pass; add patterns to restrict
 
 // ── Global store ─────────────────────────────────────
 
@@ -42,6 +43,7 @@ export function flattenFields(obj: Record<string, any>, prefix = ''): Record<str
     if (typeof val === 'number' && isFinite(val)) {
       const path = prefix + key
       if (DEFAULT_BLACKLIST.some(r => r.test(path))) continue
+      if (DEFAULT_WHITELIST.length > 0 && !DEFAULT_WHITELIST.some(r => r.test(path))) continue
       result[path] = val
     } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
       Object.assign(result, flattenFields(val, prefix + key + '.'))

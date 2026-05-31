@@ -2,8 +2,8 @@
   <div class="wave-chart">
     <div class="chart-header">
       <span class="chart-title">{{ title }}</span>
-      <span class="chart-legend" v-if="seriesNames.length">
-        <span v-for="(s,i) in seriesNames" :key="s" class="legend-dot" :style="{background:COLORS[i%COLORS.length]}">{{ s }}</span>
+      <span class="chart-legend" v-if="props.fields.length">
+        <span v-for="(s,i) in props.fields" :key="s" class="legend-dot" :style="{background:COLORS[i%COLORS.length]}">{{ s }}</span>
       </span>
     </div>
     <div ref="chartRef" class="chart-body"></div>
@@ -11,7 +11,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { watch, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import type { WavePoint } from '@/api'
 
@@ -20,6 +20,7 @@ const props = defineProps<{
   fields: string[]
   data: Record<string, WavePoint[]>
   frozen: boolean
+  yAxisIndex?: number  // D2: reserved for dual-Y, defaults to 0
 }>()
 
 const COLORS = ['#4a6cf7','#f97316','#10b981','#ef4444','#8b5cf6','#f59e0b','#ec4899','#06b6d4']
@@ -27,9 +28,18 @@ const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null
 let userZoomed = false
 
-const seriesNames = computed(() => props.fields)
+function buildSeries() {
+  return props.fields.map((name, i) => ({
+    id: name, name, type: 'line', smooth: true, showSymbol: false,
+    sampling: 'lttb', color: COLORS[i % COLORS.length],
+    yAxisIndex: props.yAxisIndex ?? 0,
+    data: (props.data[name] || []).map((p: WavePoint) => [p.ts, p.val]),
+  }))
+}
 
-const computed = () => props.fields.filter(f => props.data[f]?.length)
+function scrollToEnd() {
+  chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+}
 
 onMounted(() => {
   if (!chartRef.value) return
@@ -41,53 +51,35 @@ onMounted(() => {
     yAxis: { type: 'value' },
     tooltip: { trigger: 'axis' },
     dataZoom: [{ type: 'inside' }],
-    series: props.fields.map((name, i) => ({
-      name, type: 'line', smooth: true, showSymbol: false,
-      sampling: 'lttb', color: COLORS[i % COLORS.length], data: [],
-    })),
+    series: buildSeries(),
   })
   chart.on('dataZoom', () => { userZoomed = true })
   chart.on('dblclick', () => { userZoomed = false; scrollToEnd() })
   chart.on('restore', () => { userZoomed = false })
-  syncData()
+})
+
+// B2: watch fields prop changes → rebuild series
+watch(() => props.fields, () => {
+  if (!chart) return
+  chart.setOption({ series: buildSeries() }, true)  // B3: notMerge=true removes orphaned series
 })
 
 onUnmounted(() => { chart?.dispose(); chart = null })
 
-// sync full data set (used on mount and when fields change)
-function syncData() {
-  if (!chart) return
-  const now = Date.now()
-  for (let i = 0; i < props.fields.length; i++) {
-    const pts = props.data[props.fields[i]]
-    if (pts) {
-      chart.setOption({
-        series: [{ id: props.fields[i], data: pts.map((p: WavePoint) => [p.ts, p.val]) }],
-      }, false)
-    }
-  }
-}
-
-// append single point per field (called from parent)
-function append(ts: number, fieldVals: Record<string, number>) {
+// Q3: per-field timestamps — each field carries its own ts
+function append(updates: Record<string, { ts: number; val: number }>) {
   if (!chart) return
   for (let i = 0; i < props.fields.length; i++) {
     const f = props.fields[i]
-    const val = fieldVals[f]
-    if (val !== undefined) {
-      chart.appendData({ seriesIndex: i, data: [[ts, val]] })
-    }
+    const pt = updates[f]
+    if (pt) chart.appendData({ seriesIndex: i, data: [[pt.ts, pt.val]] })
   }
   if (!props.frozen && !userZoomed) scrollToEnd()
 }
 
-function scrollToEnd() {
-  chart?.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
-}
-
 function clearZoom() { userZoomed = false; scrollToEnd() }
 
-defineExpose({ append, syncData, clearZoom, scrollToEnd })
+defineExpose({ append, clearZoom, scrollToEnd })
 </script>
 
 <style scoped>

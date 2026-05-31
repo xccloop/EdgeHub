@@ -7,7 +7,7 @@
         <p class="subtitle" v-else>Select a device from Dashboard</p>
       </div>
       <div class="header-actions" v-if="activeBoard">
-        <el-button size="small" @click="clearWaveforms" text>Clear</el-button>
+        <el-button size="small" @click="clearWaveforms" text>Clear Waveforms</el-button>
         <el-button size="small" :type="frozen ? 'warning' : 'default'" @click="frozen = !frozen" text>
           {{ frozen ? '▶ Unfreeze' : '⏸ Freeze' }}
         </el-button>
@@ -89,26 +89,28 @@ function clearWaveforms() {
 
 // push new data points to charts
 let _lastTs: Record<string, number> = {}
+// Q2: clear timestamp cache when switching boards
+watch(activeBoard, () => { _lastTs = {} })
 watch(() => boardData.value, () => {
   const data = boardData.value
-  const now = Date.now()
   for (const [groupTitle, fields] of Object.entries(groups.value)) {
     const chart = _chartRefs[groupTitle]
     if (!chart) continue
-    const vals: Record<string, number> = {}
+    // Q3: per-field timestamps
+    const updates: Record<string, { ts: number; val: number }> = {}
     let hasNew = false
     for (const f of fields) {
       const pts = data[f]
       if (pts && pts.length > 0) {
         const last = pts[pts.length - 1]
         if (!_lastTs[f] || last.ts > _lastTs[f]) {
-          vals[f] = last.val
+          updates[f] = { ts: last.ts, val: last.val }
           _lastTs[f] = last.ts
           hasNew = true
         }
       }
     }
-    if (hasNew) chart.append(now, vals)
+    if (hasNew) chart.append(updates)
   }
 }, { deep: true })
 

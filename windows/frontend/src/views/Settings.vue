@@ -61,16 +61,21 @@ async function toggle() {
 }
 
 function toggleMock(val: boolean) {
-  if (val) startEventSource(true)
+  startEventSource(val)  // B1: true→/api/mock-wave, false→/api/stream
 }
 
 function applyGroups() {
   try {
     const parsed = JSON.parse(groupJson.value)
     if (!Array.isArray(parsed)) throw new Error('Must be an array')
+    // Q5: validate each regex before saving
+    for (const g of parsed) {
+      if (!g.pattern || !g.title) throw new Error('Each rule needs "pattern" and "title"')
+      new RegExp(g.pattern)  // throws if invalid
+    }
     localStorage.setItem('edgehub_field_groups', groupJson.value)
     ElMessage.success('Field groups applied')
-  } catch (e: any) { ElMessage.error('Invalid JSON: ' + e.message) }
+  } catch (e: any) { ElMessage.error(e.message) }
 }
 
 function resetGroups() {
