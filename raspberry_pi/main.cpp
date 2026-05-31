@@ -11,6 +11,7 @@
 #include <cstring>
 #include <csignal>
 #include <atomic>
+#include <sys/socket.h>
 
 static std::atomic<bool> g_running{true};
 
@@ -71,7 +72,6 @@ int main() {
             return;
         }
         // Build CMD frame and enqueue
-        uint8_t buf[FRAME_MAX_SIZE];
         int cmd_len = cmd.size();
         int total = 6 + cmd_len + 2; // header + payload + CRC
         uint16_t crc = crc16_modbus((const uint8_t*)cmd.data(), cmd_len);
@@ -120,7 +120,7 @@ int main() {
                 }
 
                 // Wire the frame callback for this board
-                ch->set_frame_callback([fd = client_fd, &conn_mgr, &router](const Frame &f) {
+                ch->set_frame_callback([fd = client_fd, &conn_mgr, &router, &ws](const Frame &f) {
                     auto *ch2 = conn_mgr.get(fd);
                     if (!ch2) return;
 
@@ -180,7 +180,7 @@ int main() {
                         bool done = true;
                         while (!ch->tx_queue.empty()) {
                             Frame &f = ch->tx_queue.front();
-                            ssize_t n = send(fd, f.payload, f.payload_len, MSG_NOSIGNAL);
+                            ssize_t n = send(fd, f.payload, f.payload_len, 0);
                             if (n < 0) {
                                 if (errno == EAGAIN || errno == EWOULDBLOCK) { done = false; break; }
                                 LOG("BOARD SEND ERROR fd=%d err=%s", fd, strerror(errno));
