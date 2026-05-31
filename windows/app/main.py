@@ -125,8 +125,11 @@ def broadcast_sse(event: str, data: str):
 
 # ── Phase 3: Command state ─────────────────────────────
 
+import threading
 _seq_counter = 0
+_seq_lock = threading.Lock()
 _pending_commands: dict[int, asyncio.Future] = {}
+_pending_lock = threading.Lock()
 CMD_TIMEOUT = 5  # seconds
 
 # ── Status API ────────────────────────────────────────
@@ -211,8 +214,9 @@ async def api_command(request: Request):
     if not board_id or not cmd:
         return JSONResponse({"success": False, "error": "board_id and cmd required"}, status_code=400)
 
-    _seq_counter += 1
-    seq = _seq_counter
+    with _seq_lock:
+        _seq_counter += 1
+        seq = _seq_counter
     ts = int(time.time() * 1000)
     await storage.insert_command(board_id, ts, cmd, seq)
 
@@ -222,12 +226,14 @@ async def api_command(request: Request):
 
     # Wait for ACK with timeout
     future: asyncio.Future = asyncio.get_event_loop().create_future()
-    _pending_commands[seq] = future
+    with _pending_lock:
+        _pending_commands[seq] = future
     try:
         result = await asyncio.wait_for(future, timeout=CMD_TIMEOUT)
         return {"success": True, "response": result.get("response", ""), "seq": seq}
     except asyncio.TimeoutError:
-        _pending_commands.pop(seq, None)
+        with _pending_lock:
+            _pending_commands.pop(seq, None)
         await storage.update_command_response(seq, "", "timeout")
         return JSONResponse({"success": False, "error": "Command timed out", "seq": seq}, status_code=504)
 
@@ -259,10 +265,10 @@ async def api_export(board_id: str, from_: int = 0, to: int = 0):
 
 def handle_ack_response(data: dict):
     seq = data.get("seq")
-    if seq and seq in _pending_commands:
-        future = _pending_commands.pop(seq)
-        if not future.done():
-            future.set_result(data)
+    with _pending_lock:
+        future = _pending_commands.pop(seq, None) if seq is not None else None
+    if future and not future.done():
+        future.set_result(data)
         asyncio.run_coroutine_threadsafe(
             storage.update_command_response(seq, json.dumps(data), data.get("status", "ok")),
             asyncio.get_event_loop(),

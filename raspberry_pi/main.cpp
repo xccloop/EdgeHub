@@ -73,17 +73,14 @@ int main() {
         }
         // Build CMD frame and enqueue
         int cmd_len = cmd.size();
-        int total = 6 + cmd_len + 2; // header + payload + CRC
-        uint16_t crc = crc16_modbus((const uint8_t*)cmd.data(), cmd_len);
-        // Simple CMD frame: just send the cmd text as payload
         Frame f;
         f.version = FRAME_VERSION;
-        f.length = total;
         f.type = TYPE_CMD;
         f.payload_len = cmd_len;
         memcpy(f.payload, cmd.data(), cmd_len);
-        f.crc = crc;
         ch->enqueue_send(f);
+        // Register EPOLLOUT so main loop drains the queue
+        ep.mod(ch->fd, EPOLLIN | EPOLLOUT | EPOLLET);
         LOG("CMD SEND board=%s seq=%d cmd=%s", bid.c_str(), seq, cmd.c_str());
     });
 
@@ -145,10 +142,14 @@ int main() {
                     // Phase 3: ACK frames → broadcast to PC via WS
                     if (f.type == TYPE_ACK) {
                         std::string ack(reinterpret_cast<const char*>(f.payload), f.payload_len);
+                        // extract seq from ACK payload (format: {"seq":N,"status":"ok","result":"..."})
+                        int ack_seq = -1;
+                        size_t sp = ack.find("\"seq\":");
+                        if (sp != std::string::npos) ack_seq = atoi(ack.c_str() + sp + 6);
                         char buf[512];
                         snprintf(buf, sizeof(buf),
-                            "{\"type\":\"ack\",\"board_id\":\"%s\",\"response\":\"%s\",\"status\":\"ok\"}",
-                            ch2->board_id.c_str(), ack.c_str());
+                            "{\"type\":\"ack\",\"seq\":%d,\"board_id\":\"%s\",\"response\":\"%s\",\"status\":\"ok\"}",
+                            ack_seq, ch2->board_id.c_str(), ack.c_str());
                         ws.broadcast(buf);
                     }
                     router.route(*ch2, f);
@@ -173,14 +174,28 @@ int main() {
                     continue;
                 }
 
-                // Phase 3: EPOLLOUT — drain send queue
+                // Phase 3: EPOLLOUT — drain send queue (full binary frames)
                 if (ev & EPOLLOUT) {
                     auto *ch = conn_mgr.get(fd);
                     if (ch && ch->tx_pending) {
                         bool done = true;
                         while (!ch->tx_queue.empty()) {
                             Frame &f = ch->tx_queue.front();
-                            ssize_t n = send(fd, f.payload, f.payload_len, 0);
+                            // serialize full frame: magic(2)+ver(1)+len(2)+type(1)+payload(N)+crc(2)
+                            uint8_t wire[FRAME_MAX_SIZE];
+                            int wire_len = 0;
+                            wire[wire_len++] = FRAME_MAGIC_0;
+                            wire[wire_len++] = FRAME_MAGIC_1;
+                            wire[wire_len++] = f.version;
+                            uint16_t total = FRAME_HEADER_SIZE + f.payload_len + 2;
+                            wire[wire_len++] = (total >> 8) & 0xFF;
+                            wire[wire_len++] = total & 0xFF;
+                            wire[wire_len++] = f.type;
+                            memcpy(wire + wire_len, f.payload, f.payload_len); wire_len += f.payload_len;
+                            uint16_t crc = crc16_modbus(wire, wire_len);
+                            wire[wire_len++] = crc & 0xFF;
+                            wire[wire_len++] = (crc >> 8) & 0xFF;
+                            ssize_t n = send(fd, wire, wire_len, 0);
                             if (n < 0) {
                                 if (errno == EAGAIN || errno == EWOULDBLOCK) { done = false; break; }
                                 LOG("BOARD SEND ERROR fd=%d err=%s", fd, strerror(errno));
