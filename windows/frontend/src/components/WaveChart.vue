@@ -7,29 +7,38 @@
       </span>
     </div>
     <div ref="chartRef" class="chart-body"></div>
+    <div class="debug-count" v-if="totalPoints > 0">{{ totalPoints }} pts</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
-import type { WavePoint } from '@/api'
+import { store, type WavePoint } from '@/api'
 
 const props = defineProps<{
-  title: string; fields: string[]; data: Record<string, WavePoint[]>
-  frozen: boolean; yAxisIndex?: number
+  title: string; fields: string[]; boardId: string; frozen: boolean
 }>()
 
 const SCOPE_COLORS = ['#00ff88','#ff9944','#44ccff','#ff4488','#cc88ff','#ffcc00','#ff6688','#44ffcc']
 const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null
-let _renderTimer: ReturnType<typeof setInterval> | null = null
+let _timer: ReturnType<typeof setInterval> | null = null
+
+// Read directly from store, not via props
+const boardData = computed(() => store.waveforms[props.boardId] || {})
+const totalPoints = computed(() => {
+  const d = boardData.value; let n = 0
+  for (const k of Object.keys(d)) n += d[k]?.length || 0
+  return n
+})
 
 function buildSeries() {
+  const data = boardData.value
   return props.fields.map((name, i) => ({
     id: name, name, type: 'line', smooth: false, showSymbol: false,
     lineStyle: { width: 1.5, color: SCOPE_COLORS[i % SCOPE_COLORS.length] },
-    data: (props.data[name] || []).map((p: WavePoint) => [p.ts, p.val]),
+    data: (data[name] || []).map((p: WavePoint) => [p.ts, p.val]),
   }))
 }
 
@@ -47,38 +56,44 @@ onMounted(() => {
              axisLine: { lineStyle: { color: '#1a1a30' } },
              axisLabel: { color: '#333355', fontSize: 10 },
              splitLine: { lineStyle: { color: '#0d0d1e' } } },
-    dataZoom: [{ type: 'inside', start: 100, end: 100 }],
+    tooltip: { trigger: 'axis' },
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0 },
+      { type: 'slider', xAxisIndex: 0, height: 16, bottom: 2,
+        borderColor: '#1a1a30', backgroundColor: '#0a0a18',
+        dataBackground: { lineStyle: { color: '#00ff88' }, areaStyle: { color: 'rgba(0,255,136,0.05)' } },
+        selectedDataBackground: { lineStyle: { color: '#fff' } } },
+    ],
     series: buildSeries(),
   })
 
-  // render loop — push latest data ~20fps
-  _renderTimer = setInterval(() => {
+  _timer = setInterval(() => {
     if (!chart || props.frozen) return
-    const series = buildSeries()
-    chart.setOption({ series }, true)
+    chart.setOption({ series: buildSeries() })
   }, 50)
 })
 
-watch(() => props.data, () => {}) // keep props reactive
+watch(totalPoints, () => {})
 
 onUnmounted(() => {
-  if (_renderTimer) clearInterval(_renderTimer)
+  if (_timer) clearInterval(_timer)
   chart?.dispose(); chart = null
 })
 
 function clearChart() {
-  chart?.setOption({ series: props.fields.map(name => ({ name, data: [] })) }, true)
+  chart?.setOption({ series: props.fields.map(name => ({ id: name, name, data: [] })) }, true)
 }
 
 defineExpose({ clearChart })
 </script>
 
 <style scoped>
-.wave-chart { background: #080812; border: 1px solid #15152a; border-radius: 14px; overflow: hidden; }
+.wave-chart { background: #080812; border: 1px solid #15152a; border-radius: 14px; overflow: hidden; position: relative; }
 .chart-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: #0a0a18; border-bottom: 1px solid #15152a; }
 .chart-title { font-size: 12px; font-weight: 700; color: #556; }
 .chart-legend { display: flex; gap: 10px; flex-wrap: wrap; }
 .legend-dot { font-size: 10px; font-weight: 600; color: #445; padding-left: 12px; position: relative; }
 .legend-dot::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 7px; height: 7px; border-radius: 50%; background: inherit; }
 .chart-body { width: 100%; height: 200px; }
+.debug-count { position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: #333355; font-family: monospace; }
 </style>

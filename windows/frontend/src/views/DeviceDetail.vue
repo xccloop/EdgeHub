@@ -21,7 +21,7 @@
           v-for="(fields, groupTitle) in groups" :key="groupTitle"
           :ref="el => setChartRef(groupTitle, el)"
           :title="groupTitle" :fields="fields"
-          :data="boardData" :frozen="frozen"
+          :boardId="activeBoard" :frozen="frozen"
         />
         <el-empty v-if="!hasData" description="No waveform data yet. Waiting for telemetry…" />
       </div>
