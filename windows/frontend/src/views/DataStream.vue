@@ -1,7 +1,7 @@
 <template>
   <div class="data-stream">
     <div class="page-header">
-      <div><h1>Data Stream</h1><p class="subtitle">Per-board terminal panels</p></div>
+      <div><h1>Data Stream</h1><p class="subtitle">Per-board terminal panels (buffers persist across tabs)</p></div>
       <el-button size="small" @click="clearActive" text>Clear Active</el-button>
     </div>
 
@@ -14,8 +14,7 @@
       >
         <span class="tab-dot" :style="{ background: colorForBoard(bid) }"></span>
         <span class="tab-label">{{ bid }}</span>
-        <span class="tab-count">{{ boardLogs(bid).length }}</span>
-        <span class="tab-close" @click.stop="closeTab(bid)">×</span>
+        <span class="tab-count">{{ store.perBoard[bid]?.length || 0 }}</span>
       </div>
       <div class="tab-actions">
         <el-button size="small" text @click="paused.has(activeTab) ? paused.delete(activeTab) : paused.add(activeTab)">
@@ -27,12 +26,12 @@
     <!-- active panel -->
     <div class="panel" v-if="activeTab">
       <div class="panel-log" ref="logRef">
-        <div class="log-line" v-for="(line, i) in boardLogs(activeTab)" :key="i">
+        <div class="log-line" v-for="(line, i) in (store.perBoard[activeTab] || [])" :key="i">
           <span class="idx">{{ i+1 }}</span>
           <span class="type">{{ line.type }}</span>
           <span class="json">{{ line.json }}</span>
         </div>
-        <div v-if="boardLogs(activeTab).length === 0" class="empty-hint">Waiting for data…</div>
+        <div v-if="!(store.perBoard[activeTab]?.length > 0)" class="empty-hint">Waiting for data…</div>
       </div>
     </div>
 
@@ -41,55 +40,37 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, nextTick, watch } from 'vue'
+import { computed, ref, reactive, nextTick, watch, onUnmounted } from 'vue'
 import { store } from '@/api'
 
 const activeTab = ref('')
 const paused = reactive(new Set<string>())
 const logRef = ref<HTMLElement>()
+let _scrollTimer: ReturnType<typeof setInterval>
 
 const colors = ['#4a6cf7','#f97316','#8b5cf6','#10b981','#f43f5e','#06b6d4']
 const colorForBoard = (id: string) => { let h=0; for(let i=0;i<id.length;i++) h=((h<<5)-h+id.charCodeAt(i))|0; return colors[Math.abs(h)%colors.length] }
 
 const boardIds = computed(() => Object.keys(store.devices).sort())
 
-// per-board log buffers + smooth line-by-line consumption
-const perBoard = reactive<Record<string, { board_id: string; type: string; json: string }[]>>({})
-const _pending: { board_id: string; type: string; json: string }[] = []
-
-// collect incoming messages into pending queue
-watch(() => store.logs.length, () => {
-  for (let i = _pending.length; i < store.logs.length; i++) {
-    _pending.push(store.logs[i])
-  }
-  if (!activeTab.value && boardIds.value.length > 0) {
-    activeTab.value = boardIds.value[0]
+// auto-select first board
+watch(boardIds, (ids) => {
+  if (!activeTab.value && ids.length > 0) activeTab.value = ids[0]
+  // keep selected tab if it still exists
+  if (activeTab.value && !ids.includes(activeTab.value)) {
+    activeTab.value = ids[0] || ''
   }
 }, { immediate: true })
 
-// consume pending queue one line at a time for smooth streaming feel
-setInterval(() => {
-  const line = _pending.shift()
-  if (!line) return
-  if (!perBoard[line.board_id]) perBoard[line.board_id] = []
-  if (!paused.has(line.board_id)) {
-    perBoard[line.board_id].push(line)
-    if (perBoard[line.board_id].length > 500) perBoard[line.board_id].splice(0, 50)
-  }
+// auto-scroll when active tab's log grows
+_scrollTimer = setInterval(() => {
   nextTick(() => { if (logRef.value) logRef.value.scrollTop = logRef.value.scrollHeight })
-}, 80) // ~12 lines/sec, smooth cadence
+}, 200)
 
-function boardLogs(bid: string) { return perBoard[bid] || [] }
+onUnmounted(() => clearInterval(_scrollTimer))
 
 function clearActive() {
-  if (activeTab.value) perBoard[activeTab.value] = []
-}
-
-function closeTab(bid: string) {
-  delete perBoard[bid]
-  if (activeTab.value === bid) {
-    activeTab.value = boardIds.value.find(b => b !== bid) || ''
-  }
+  if (activeTab.value) store.perBoard[activeTab.value] = []
 }
 </script>
 
@@ -104,7 +85,6 @@ function closeTab(bid: string) {
 .page-header h1 { font-size: 24px; font-weight: 700; }
 .subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 
-/* tabs */
 .tab-bar {
   display: flex; align-items: center; gap: 2px; padding: 0 16px;
   background: #f8f9fb; border-bottom: 1px solid var(--border); overflow-x: auto;
@@ -119,11 +99,8 @@ function closeTab(bid: string) {
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .tab-count { color: #cbd5e1; font-size: 10px; }
-.tab-close { color: #cbd5e1; margin-left: 4px; font-size: 14px; }
-.tab-close:hover { color: var(--danger); }
 .tab-actions { margin-left: auto; flex-shrink: 0; }
 
-/* panel */
 .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .panel-log {
   flex: 1; overflow-y: auto; padding: 14px 20px;

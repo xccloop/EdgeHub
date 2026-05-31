@@ -23,6 +23,9 @@ export const store = reactive({
   devices: {} as Record<string, DeviceInfo>,
   logs: [] as LogLine[],
   logPaused: false,
+  // per-board log buffers (persist across page switches)
+  perBoard: {} as Record<string, LogLine[]>,
+  pending: [] as LogLine[],
 })
 
 // ── Single global SSE connection ─────────────────────
@@ -37,8 +40,8 @@ export function startEventSource() {
     const d = ensureDevice(raw.board_id)
     d.telemetry_count++
     d.msg_count++
-    store.logs.push({ board_id: raw.board_id, type: 'telemetry', json: JSON.stringify(raw.raw) })
-    trimLogs()
+    const entry = { board_id: raw.board_id, type: 'telemetry', json: JSON.stringify(raw.raw) }
+    store.pending.push(entry)
   })
 
   _es.addEventListener('heartbeat', (e: any) => {
@@ -47,8 +50,8 @@ export function startEventSource() {
     d.heartbeat_count++
     d.msg_count++
     if (raw.ts) d.last_seen_ms = raw.ts
-    store.logs.push({ board_id: raw.board_id, type: 'heartbeat', json: JSON.stringify({ type: 'heartbeat', board: raw.board_id, ts: raw.ts }) })
-    trimLogs()
+    const entry = { board_id: raw.board_id, type: 'heartbeat', json: JSON.stringify({ type: 'heartbeat', board: raw.board_id, ts: raw.ts }) }
+    store.pending.push(entry)
   })
 
   _es.addEventListener('event', (e: any) => {
@@ -58,23 +61,28 @@ export function startEventSource() {
     } else {
       const d = ensureDevice(raw.board_id)
       d.state = (raw.event === 'online' ? 'ONLINE' : 'OFFLINE')
-      store.logs.push({ board_id: raw.board_id, type: raw.event, json: JSON.stringify(raw) })
-      trimLogs()
+      const entry = { board_id: raw.board_id, type: raw.event, json: JSON.stringify(raw) }
+      store.pending.push(entry)
     }
   })
 
   _es.onerror = () => { /* auto-reconnect */ }
 }
 
+// ── Global per-board log distributor (persists across page switches) ──
+setInterval(() => {
+  const line = store.pending.shift()
+  if (!line) return
+  if (!store.perBoard[line.board_id]) store.perBoard[line.board_id] = []
+  store.perBoard[line.board_id].push(line)
+  if (store.perBoard[line.board_id].length > 500) store.perBoard[line.board_id].splice(0, 50)
+}, 80)
+
 function ensureDevice(id: string): DeviceInfo {
   if (!store.devices[id]) {
     store.devices[id] = { board_id: id, state: 'ONLINE', last_seen_ms: 0, msg_count: 0, telemetry_count: 0, heartbeat_count: 0 }
   }
   return store.devices[id]
-}
-
-function trimLogs() {
-  if (store.logs.length > 500) store.logs.splice(0, 50)
 }
 
 // ── REST API ─────────────────────────────────────────
