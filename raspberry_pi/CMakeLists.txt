@@ -5,9 +5,9 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Mongoose — single-header library.
-# Download mongoose.h and mongoose.c from https://github.com/cesanta/mongoose
-# and place them in raspberry_pi/third_party/mongoose/
+find_package(SQLite3 REQUIRED)
+find_package(Threads REQUIRED)
+
 set(MONGOOSE_DIR ${CMAKE_SOURCE_DIR}/third_party/mongoose)
 
 add_executable(edgehub
@@ -20,6 +20,9 @@ add_executable(edgehub
     src/tcp_acceptor.cpp
     src/ws_server.cpp
     src/msg_router.cpp
+    src/storage.cpp
+    src/cmd_mgr.cpp
+    src/rate_limiter.cpp
     ${MONGOOSE_DIR}/mongoose.c
 )
 
@@ -28,7 +31,9 @@ target_include_directories(edgehub PRIVATE
     ${MONGOOSE_DIR}
 )
 
-target_link_libraries(edgehub PRIVATE pthread)
+target_link_libraries(edgehub PRIVATE
+    SQLite::SQLite3
+    Threads::Threads
+)
 
-# Recommended build flags for Raspberry Pi 4B (ARM Cortex-A72)
 target_compile_options(edgehub PRIVATE -Wall -Wextra -O2 -mcpu=cortex-a72)

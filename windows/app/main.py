@@ -1,14 +1,17 @@
 """
 EdgeHub Windows — FastAPI + Vue 3 + pywebview desktop app.
+Phase 3: storage + command management moved to Pi.
+Windows is now a pure real-time display + manual command proxy.
 """
 
-import sys, os, json, threading, time, asyncio
+import sys, os, json, threading, time, asyncio, uuid
 from datetime import datetime
 from typing import Optional
 
 import webview
+import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,7 +19,6 @@ from .api.ws_client import WsClient
 from .backend.parser import parse_message
 from .backend.dispatcher import DataDispatcher
 from .backend.models import Telemetry, Heartbeat, DeviceEvent
-from . import storage
 
 # ── Paths ────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -39,19 +41,30 @@ class AppState:
         self.server_connected = False
         self.sse_clients: list[asyncio.Queue] = []
         self.sse_lock = threading.Lock()
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
 
 state = AppState()
+
+# ── Pi proxy config ──────────────────────────────────
+PI_BASE = "http://192.168.1.112:9528"
+CMD_SUBMIT_TIMEOUT = 5.0   # submit to Pi (short)
+CMD_RESULT_TIMEOUT = 7.0   # wait for cmd_result via WS (longer than Pi's 5s timeout)
+
+# ── Command pending (waiting for WS cmd_result from Pi) ─
+_pending_commands: dict[int, asyncio.Future] = {}
+_pending_lock = threading.Lock()
 
 # ═══════════════════════════════════════════════════════
 # FastAPI app
 # ═══════════════════════════════════════════════════════
 
-app = FastAPI(title="EdgeHub", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="EdgeHub", version="3.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
+                   allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
-async def startup():
-    await storage.init_db()
+async def capture_loop():
+    state.loop = asyncio.get_running_loop()
 
 # ── SSE stream endpoint ──────────────────────────────
 
@@ -72,7 +85,7 @@ async def api_stream(request: Request):
                     data = await asyncio.wait_for(queue.get(), timeout=15)
                     yield data
                 except asyncio.TimeoutError:
-                    yield f": heartbeat\n\n"
+                    yield ": heartbeat\n\n"
         finally:
             with state.sse_lock:
                 if queue in state.sse_clients:
@@ -81,7 +94,7 @@ async def api_stream(request: Request):
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-# ── Mock wave endpoint (no hardware needed) ──────────
+# ── Mock wave endpoint ───────────────────────────────
 
 @app.get("/api/mock-wave")
 async def api_mock_wave(request: Request):
@@ -115,27 +128,33 @@ async def api_mock_wave(request: Request):
 
 
 def broadcast_sse(event: str, data: str):
-    """Push data to all SSE clients."""
+    """Push data to all SSE clients — safe from any thread."""
     msg = f"event: {event}\ndata: {data}\n\n"
     with state.sse_lock:
         clients = state.sse_clients[:]
     if not clients:
-        _log(f"SSE no clients, dropping {event}")
+        return
+    if state.loop is None:
         return
     for q in clients:
-        try:
-            q.put_nowait(msg)
-        except asyncio.QueueFull:
-            pass
+        state.loop.call_soon_threadsafe(lambda q=q, m=msg: (
+            None if q.full() else q.put_nowait(m)
+        ))
 
-# ── Phase 3: Command state ─────────────────────────────
+# ── Handle cmd_result events from Pi (via WS) ────────
 
-import threading
-_seq_counter = 0
-_seq_lock = threading.Lock()
-_pending_commands: dict[int, asyncio.Future] = {}
-_pending_lock = threading.Lock()
-CMD_TIMEOUT = 5  # seconds
+def handle_cmd_result(data: dict):
+    """Resolve the future waiting for a command result."""
+    seq = data.get("seq")
+    with _pending_lock:
+        future = _pending_commands.pop(seq, None)
+    if future and not future.done():
+        future.set_result({
+            "success": data.get("status") == "ok",
+            "response": data.get("response", ""),
+            "seq": seq,
+            "request_id": data.get("request_id", ""),
+        })
 
 # ── Status API ────────────────────────────────────────
 
@@ -166,24 +185,25 @@ async def api_connect(request: Request):
         broadcast_sse("event", json.dumps({"board": "server", "event": "disconnected"}))
 
     def on_message(text: str):
-        # Phase 3: check for ACK response from Pi
         try:
             data = json.loads(text)
-            if data.get("type") == "ack":
-                handle_ack_response(data)
-                return
         except (json.JSONDecodeError, TypeError):
-            pass
+            return
 
+        msg_type = data.get("type", "")
+
+        # Pi-originated events — don't pass to parser
+        if msg_type in ("cmd_result", "ack_raw"):
+            if msg_type == "cmd_result":
+                handle_cmd_result(data)
+            return
+
+        # Legacy telemetry/heartbeat/event
         model = parse_message(text)
         if model is None:
             return
         if isinstance(model, Telemetry):
             broadcast_sse("telemetry", json.dumps({"board_id": model.board_id, "raw": model.raw}))
-            asyncio.run_coroutine_threadsafe(
-                storage.insert_telemetry(model.board_id, int(time.time() * 1000), model.raw),
-                asyncio.get_event_loop(),
-            )
         elif isinstance(model, Heartbeat):
             broadcast_sse("heartbeat", json.dumps({"board_id": model.board_id, "ts": model.ts}))
         elif isinstance(model, DeviceEvent):
@@ -194,9 +214,8 @@ async def api_connect(request: Request):
     state.ws_client.on_message = on_message
     state.ws_client.connect_to(host, port)
 
-    # Wait for connection with timeout
     for _ in range(20):
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
         if state.server_connected:
             return {"success": True}
 
@@ -205,94 +224,99 @@ async def api_connect(request: Request):
         return {"success": True}
     return {"success": False, "error": f"Connection timed out to {host}:{port}"}
 
-# ── Phase 3: Command endpoint ─────────────────────────
+# ── Command endpoint (proxy to Pi) ───────────────────
 
 @app.post("/api/command")
 async def api_command(request: Request):
-    global _seq_counter
-    if not state.ws_client or not state.ws_client.is_connected():
-        return JSONResponse({"success": False, "error": "WebSocket to Pi not connected"}, status_code=503)
-
     body = await request.json()
     board_id = body.get("board_id", "")
     cmd = body.get("cmd", "")
     if not board_id or not cmd:
         return JSONResponse({"success": False, "error": "board_id and cmd required"}, status_code=400)
 
-    with _seq_lock:
-        _seq_counter += 1
-        seq = _seq_counter
-    ts = int(time.time() * 1000)
-    await storage.insert_command(board_id, ts, cmd, seq)
+    request_id = body.get("request_id", str(uuid.uuid4())[:8])
 
-    # Send command via WebSocket to Pi
-    payload = json.dumps({"board_id": board_id, "cmd": cmd, "seq": seq, "ts": ts})
-    state.ws_client.send(payload)
+    # 1. Submit to Pi
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"{PI_BASE}/api/command",
+                json={"board_id": board_id, "cmd": cmd, "request_id": request_id},
+                timeout=CMD_SUBMIT_TIMEOUT)
+        result = r.json()
+    except httpx.TimeoutException:
+        return JSONResponse({"success": False, "error": "Pi unreachable (submit timeout)"}, status_code=503)
+    except httpx.ConnectError:
+        return JSONResponse({"success": False, "error": "Cannot connect to Pi"}, status_code=503)
 
-    # Wait for ACK with timeout
+    if not result.get("success"):
+        status = 400 if "offline" in str(result.get("error", "")) else 429
+        return JSONResponse(result, status_code=status)
+
+    seq = result["seq"]
+
+    # 2. Wait for WS cmd_result
     future: asyncio.Future = asyncio.get_event_loop().create_future()
     with _pending_lock:
         _pending_commands[seq] = future
+
     try:
-        result = await asyncio.wait_for(future, timeout=CMD_TIMEOUT)
-        return {"success": True, "response": result.get("response", ""), "seq": seq}
+        cmd_result = await asyncio.wait_for(future, timeout=CMD_RESULT_TIMEOUT)
+        return cmd_result
     except asyncio.TimeoutError:
         with _pending_lock:
             _pending_commands.pop(seq, None)
-        await storage.update_command_response(seq, "", "timeout")
-        return JSONResponse({"success": False, "error": "Command timed out", "seq": seq}, status_code=504)
+        # 3. Fallback: poll Pi for command status
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(f"{PI_BASE}/api/command/{seq}", timeout=3.0)
+            poll = r.json()
+            return {
+                "success": poll.get("status") == "ok",
+                "response": poll.get("response", ""),
+                "seq": seq,
+                "request_id": poll.get("request_id", ""),
+            }
+        except Exception:
+            return JSONResponse(
+                {"success": False, "error": "Command timed out", "seq": seq},
+                status_code=504)
 
-# ── Phase 3: History endpoint ─────────────────────────
+# ── History endpoint (proxy to Pi) ───────────────────
 
 @app.get("/api/history/{board_id}")
 async def api_history(board_id: str, from_: int = 0, to: int = 0, limit: int = 5000):
-    if not from_ or not to:
-        now = int(time.time() * 1000)
-        from_ = from_ or (now - 600_000)  # default last 10 min
-        to = to or now
-    return await storage.query_history(board_id, from_, to, limit)
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{PI_BASE}/api/history/{board_id}",
+            params={"from": from_, "to": to, "limit": limit},
+            timeout=30.0)
+    return JSONResponse(r.json())
 
-# ── Phase 3: Export endpoint ──────────────────────────
+# ── Export endpoint (proxy to Pi) ────────────────────
 
 @app.get("/api/export/{board_id}")
 async def api_export(board_id: str, from_: int = 0, to: int = 0):
-    if not from_ or not to:
-        now = int(time.time() * 1000)
-        from_ = from_ or (now - 600_000)
-        to = to or now
-    csv_data = await storage.export_csv(board_id, from_, to)
-    from fastapi.responses import PlainTextResponse
-    filename = f"edgehub_{board_id}_{from_}_{to}.csv"
-    return PlainTextResponse(csv_data, media_type="text/csv",
-                             headers={"Content-Disposition": f"attachment; filename={filename}"})
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{PI_BASE}/api/export/{board_id}",
+            params={"from": from_, "to": to},
+            timeout=120.0)
+    return PlainTextResponse(r.text, media_type="text/csv",
+                             headers={"Content-Disposition":
+                                      r.headers.get("Content-Disposition", "attachment")})
 
-# ── Phase 3: Handle ACK from Pi ───────────────────────
-
-def handle_ack_response(data: dict):
-    seq = data.get("seq")
-    with _pending_lock:
-        future = _pending_commands.pop(seq, None) if seq is not None else None
-    if future and not future.done():
-        future.set_result(data)
-        asyncio.run_coroutine_threadsafe(
-            storage.update_command_response(seq, json.dumps(data), data.get("status", "ok")),
-            asyncio.get_event_loop(),
-        )
-    else:
-        _log(f"ACK seq={seq} arrived after timeout, discarded")
-
-# ── Phase 3: Retention settings ───────────────────────
+# ── Retention proxy ──────────────────────────────────
 
 @app.get("/api/retention")
 async def api_get_retention():
-    return {"days": storage._retention_days}
-
-@app.put("/api/retention")
-async def api_set_retention(request: Request):
-    body = await request.json()
-    days = body.get("days", 7)
-    storage.set_retention(days)
-    return {"days": days}
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{PI_BASE}/api/status", timeout=5.0)
+        data = r.json()
+        return {"days": "managed on Pi"}
+    except Exception:
+        return {"days": "unknown"}
 
 # ── Frontend static files ────────────────────────────
 
@@ -318,17 +342,14 @@ def start_server():
 
 
 def main():
-    # PyInstaller frozen path fix
     global FRONTEND_DIST, BASE_DIR
     if getattr(sys, "frozen", False):
         BASE_DIR = os.path.dirname(sys.executable)
         FRONTEND_DIST = os.path.join(sys._MEIPASS, "frontend", "dist")
 
-    # Start FastAPI in background
     t = threading.Thread(target=start_server, daemon=True)
     t.start()
 
-    # Wait for server
     import urllib.request
     url = f"http://127.0.0.1:{SERVER_PORT}"
     for _ in range(30):
@@ -338,7 +359,6 @@ def main():
         except Exception:
             time.sleep(0.3)
 
-    # Open desktop window
     webview.create_window(
         title="EdgeHub Dashboard",
         url=url,
