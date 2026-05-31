@@ -18,12 +18,12 @@ export interface LogLine {
 }
 
 // ── Global reactive state ────────────────────────────
+
 export const store = reactive({
   serverConnected: false,
   devices: {} as Record<string, DeviceInfo>,
   logs: [] as LogLine[],
   logPaused: false,
-  // per-board log buffers (persist across page switches)
   perBoard: {} as Record<string, LogLine[]>,
   pending: [] as LogLine[],
 })
