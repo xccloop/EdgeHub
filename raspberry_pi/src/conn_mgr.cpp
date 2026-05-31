@@ -1,18 +1,11 @@
 #include "conn_mgr.hpp"
-#include "epoll.hpp"
 #include <unistd.h>
 #include <cstdio>
-
-// The ConnectionManager needs an Epoll reference to del() fds.
-// We pass it via a static/global for simplicity, or make remove() accept epoll*.
-// Here we use a simpler design: the caller is responsible for epoll_ctl DEL,
-// then calls remove() which closes fd and destroys the channel.
 
 BoardChannel* ConnectionManager::add(int fd, const std::string &ip) {
     if (m_channels.count(fd)) {
         return nullptr;
     }
-
     auto result = m_channels.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(fd),
@@ -24,8 +17,6 @@ BoardChannel* ConnectionManager::add(int fd, const std::string &ip) {
 void ConnectionManager::remove(int fd) {
     auto it = m_channels.find(fd);
     if (it == m_channels.end()) return;
-
-    // close fd (caller must have already called epoll_ctl DEL)
     if (it->second.fd >= 0) {
         close(it->second.fd);
     }
@@ -47,20 +38,17 @@ std::vector<BoardChannel*> ConnectionManager::check_heartbeats(uint64_t now_ms) 
     for (auto &pair : m_channels) {
         auto &ch = pair.second;
 
-        if (ch.is_heartbeat_timeout(now_ms)) {
-            // P0: record first-timeout timestamp; only disconnect after
-            // total timeout duration exceeds MAX_TIMEOUT_DURATION_MS (15s).
+        if (ch.is_inactive_timeout(now_ms)) {
             if (ch.heartbeat_timeout_start_ms == 0) {
                 ch.heartbeat_timeout_start_ms = now_ms;
             }
             uint64_t elapsed = now_ms - ch.heartbeat_timeout_start_ms;
-            if (elapsed > BoardChannel::MAX_TIMEOUT_DURATION_MS) {
+            if (elapsed > (uint64_t)BoardChannel::MAX_TIMEOUT_DURATION_MS) {
                 ch.state = BoardState::OFFLINE;
-                ch.close_reason = "heartbeat timeout";
+                ch.close_reason = "inactive timeout";
                 timed_out.push_back(&ch);
             }
         } else {
-            // heartbeat is fresh — reset timeout tracking
             ch.heartbeat_timeout_start_ms = 0;
         }
     }

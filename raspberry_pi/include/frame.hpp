@@ -28,7 +28,7 @@ enum ParseState {
 
 struct Frame {
     uint8_t  version;
-    uint16_t length;   // header(8) + payload(N) + crc(2)
+    uint16_t length;   // header(6) + payload(N) + crc(2)
     uint8_t  type;
     uint8_t  payload[FRAME_MAX_PAYLOAD];
     uint16_t payload_len;
@@ -36,3 +36,8 @@ struct Frame {
 };
 
 uint16_t crc16_modbus(const uint8_t *data, size_t len);
+
+// Serialize a Frame into the wire format: magic(2)+ver(1)+len(2)+type(1)+payload(N)+crc(2)
+// Returns the total number of bytes written to wire (max FRAME_MAX_SIZE).
+// wire must be at least FRAME_MAX_SIZE bytes.
+int serialize_frame(const Frame &f, uint8_t *wire);

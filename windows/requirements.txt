@@ -1,8 +1,8 @@
 # EdgeHub Windows Client Dependencies
 # Install: pip install -r requirements.txt
-pywebview>=6.0          # desktop window wrapper
+pywebview>=5.0          # desktop window wrapper
 fastapi>=0.136          # HTTP API + SSE server
 uvicorn>=0.34           # ASGI server
 websocket-client>=1.8   # WebSocket client (Pi connection)
-aiosqlite>=0.20         # async SQLite driver (Phase 3)
-pytest>=9.0             # test framework
+httpx>=0.27             # HTTP proxy to Pi (history/command/export)
+pytest>=8.0             # test framework

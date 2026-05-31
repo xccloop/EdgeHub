@@ -9,6 +9,7 @@ BoardChannel::BoardChannel(int _fd, const std::string &_ip)
     : fd(_fd), ip(_ip), parser([](const Frame &) {})
 {
     connect_time_ms = get_time_ms();
+    last_active_ms = connect_time_ms;
 }
 
 bool BoardChannel::read_all() {
@@ -28,7 +29,6 @@ bool BoardChannel::read_all() {
             if (errno == EINTR) {
                 continue; // interrupted by signal, retry
             }
-            // ECONNRESET / other errors → fatal
             state = BoardState::OFFLINE;
             close_reason = strerror(errno);
             printf("[board] read error fd=%d: %s\n", fd, close_reason.c_str());
@@ -38,11 +38,12 @@ bool BoardChannel::read_all() {
     return true;
 }
 
-bool BoardChannel::is_heartbeat_timeout(uint64_t now_ms) const {
-    if (last_heartbeat_ms == 0) {
-        return (now_ms - connect_time_ms) > HEARTBEAT_GRACE_MS;
+bool BoardChannel::is_inactive_timeout(uint64_t now_ms) const {
+    if (last_active_ms == connect_time_ms && msg_count == 0) {
+        // Never received any frame — use initial grace period
+        return (now_ms - connect_time_ms) > (uint64_t)HEARTBEAT_GRACE_MS;
     }
-    return (now_ms - last_heartbeat_ms) > HEARTBEAT_TIMEOUT_MS;
+    return (now_ms - last_active_ms) > (uint64_t)INACTIVE_TIMEOUT_MS;
 }
 
 void BoardChannel::feed(const uint8_t *data, size_t len) {
