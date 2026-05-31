@@ -52,7 +52,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { store, connectServer, startEventSource } from '@/api'
+import { store, connectServer, startEventSource, reloadWhitelist } from '@/api'
 
 const host = ref('192.168.1.112')
 const port = ref('9528')
@@ -102,7 +102,8 @@ function applyWhitelist() {
     if (!Array.isArray(parsed)) throw new Error('Must be a JSON array of regex strings')
     for (const s of parsed) { if (typeof s !== 'string') throw new Error('All items must be strings'); new RegExp(s) }
     localStorage.setItem('edgehub_whitelist', whitelistJson.value)
-    ElMessage.success('Whitelist applied (reconnect or toggle mock to reload)')
+    reloadWhitelist()  // B2: immediately apply
+    ElMessage.success('Whitelist applied')
   } catch (e: any) { ElMessage.error(e.message) }
 }
 

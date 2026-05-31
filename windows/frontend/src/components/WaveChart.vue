@@ -44,7 +44,7 @@ function scrollToEnd() {
 onMounted(() => {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
-  const hasRightAxis = props.fields.some((_, i) => (props.yAxisIndex ?? 0) > 0 || i > 0)
+  const hasRightAxis = (props.yAxisIndex ?? 0) > 0  // B3: Phase 2 single axis; Phase 3 dual-Y
   chart.setOption({
     animation: false,
     grid: { top: 36, right: hasRightAxis ? 52 : 20, bottom: 28, left: 52 },
@@ -61,10 +61,15 @@ onMounted(() => {
   chart.on('restore', () => { userZoomed = false })
 })
 
-// Watch fields or data changes → rebuild series
-watch([() => props.fields, () => props.data], () => {
+// Field toggle → rebuild series only, keep zoom
+watch(() => props.fields, () => {
   if (!chart) return
-  userZoomed = false  // Bug 2: reset zoom on board/field switch
+  chart.setOption({ series: buildSeries() }, true)
+})
+// Data change (board switch) → rebuild + reset zoom
+watch(() => props.data, () => {
+  if (!chart) return
+  userZoomed = false
   chart.setOption({ series: buildSeries() }, true)
 })
 

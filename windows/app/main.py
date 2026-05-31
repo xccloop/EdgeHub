@@ -77,7 +77,7 @@ async def api_stream(request: Request):
 
 @app.get("/api/mock-wave")
 async def api_mock_wave(request: Request):
-    """Push sine-wave telemetry directly to SSE — zero hardware dependency."""
+    """Push sine-wave telemetry directly via SSE — zero hardware dependency."""
     import math
     async def generator():
         t0 = time.time()
@@ -99,7 +99,8 @@ async def api_mock_wave(request: Request):
                 "voltage": 12.0 + 0.5 * math.sin(t * 0.15),
                 "current": 2.0 + 0.3 * math.sin(t * 0.25),
             }
-            broadcast_sse("telemetry", json.dumps({"board_id": "test_wave", "raw": payload}))
+            data = json.dumps({"board_id": "test_wave", "raw": payload})
+            yield f"event: telemetry\ndata: {data}\n\n"
             await asyncio.sleep(0.05)
     return StreamingResponse(generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

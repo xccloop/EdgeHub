@@ -140,8 +140,9 @@ export function startEventSource(mock = false) {
   es.addEventListener('telemetry', (e: any) => {
     const raw = JSON.parse(e.data)
     const d = ensureDevice(raw.board_id)
+    d.state = 'ONLINE'  // B6: telemetry receipt → ONLINE
     d.telemetry_count++; d.msg_count++
-    d.last_seen_ms = Date.now()  // B5: telemetry receipt == last seen
+    d.last_seen_ms = Date.now()
     const fields = flattenFields(raw.raw)
     pushWaveform(raw.board_id, fields)
     const entry: LogLine = { board_id: raw.board_id, type: 'telemetry', json: JSON.stringify(raw.raw) }
@@ -150,6 +151,7 @@ export function startEventSource(mock = false) {
   es.addEventListener('heartbeat', (e: any) => {
     const raw = JSON.parse(e.data)
     const d = ensureDevice(raw.board_id)
+    d.state = 'ONLINE'  // B6: heartbeat receipt → ONLINE
     d.heartbeat_count++; d.msg_count++
     if (raw.ts) d.last_seen_ms = raw.ts
     store.pending.push({ board_id: raw.board_id, type: 'heartbeat', json: JSON.stringify({ type: 'heartbeat', board: raw.board_id, ts: raw.ts }) })

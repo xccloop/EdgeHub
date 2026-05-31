@@ -55,7 +55,7 @@ const frozen = ref(false)
 const _chartRefs: Record<string, any> = {}
 const COLORS = ['#4a6cf7','#f97316','#10b981','#ef4444','#8b5cf6','#f59e0b','#ec4899','#06b6d4']
 
-function setChartRef(title: string, el: any) { if (el) _chartRefs[title] = el }
+function setChartRef(title: string, el: any) { if (el) _chartRefs[title] = el; else delete _chartRefs[title] }
 
 const boardData = computed(() => store.waveforms[activeBoard.value] || {})
 const allFields = computed(() => Object.keys(boardData.value).sort())
@@ -84,7 +84,8 @@ function toggleField(f: string) {
 function clearWaveforms() {
   if (activeBoard.value) {
     store.waveforms[activeBoard.value] = {}
-    _lastTs = {}  // Dev 5: reset timestamp cache
+    _lastTs = {}
+    frozen.value = false  // B9: unfreeze on clear
     for (const key of Object.keys(_chartRefs)) {
       _chartRefs[key]?.clearZoom?.()
     }
